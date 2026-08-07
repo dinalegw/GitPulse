@@ -1,0 +1,14 @@
+# Build output
+/bin/
+
+# Test artifacts
+*.test
+*.out
+/coverage.html
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
