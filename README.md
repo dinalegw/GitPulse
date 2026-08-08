@@ -33,7 +33,7 @@ explicit configuration.
 
 ### From source
 
-Requirements: Go 1.24 or newer and `git` on your `PATH`.
+Requirements: Go 1.26 or newer and `git` on your `PATH`.
 
 ```sh
 git clone https://github.com/gitpulse/gitpulse.git
@@ -82,7 +82,8 @@ commit:
 1. Appends one line to `.gitpulse/activity.log` in the repository.
 2. Stages only the `.gitpulse/` directory.
 3. Creates a conventional commit, e.g. `chore: GitPulse automated pulse #4`.
-4. After the cycle, pushes once to `origin/<remote_branch>`.
+4. After the cycle, pushes once to the configured remote (skipped during
+   dry-run or if no remote is configured).
 
 Because only the metadata directory is staged, application source files are
 never modified by GitPulse. If no remote is configured, pushing is skipped
@@ -101,7 +102,7 @@ spread evenly across the `start_time`–`end_time` window (or spaced by
 | `gitpulse config`     | Show the effective configuration.                |
 | `gitpulse config set` | Change a single configuration value.             |
 | `gitpulse run`        | Create and push a cycle of commits now.          |
-| `gitpulse run --schedule` | Run continuously on the configured schedule. |
+| `gitpulse run --schedule` | Run continuously on the configured schedule (alias: `--daemon`). |
 | `gitpulse status`     | Show repository, configuration, and schedule.    |
 | `gitpulse logs`       | Show recent log entries.                         |
 | `gitpulse validate`   | Validate the configuration and repository.       |
