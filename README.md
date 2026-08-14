@@ -17,6 +17,8 @@ explicit configuration.
 
 ## Features
 
+- **Interactive quick-run mode** — run `gitpulse` with no arguments and it
+  walks you through repository path, commit count, interval, and message.
 - Initialize GitPulse and store human-readable configuration.
 - Configure a repository, remote branch, commits per day, schedule window,
   timezone, and logging level.
@@ -55,6 +57,25 @@ gitpulse doctor
 ```
 
 ## Quick start
+
+### Interactive mode (recommended)
+
+Run `gitpulse` with no subcommand and it will prompt you for everything:
+
+```text
+Welcome to GitPulse Interactive Mode
+=====================================
+
+Enter repository path: /path/to/repo
+Number of commits: 5
+Minutes between commits: 0
+Commit message: Updating Repo
+```
+
+Each commit is created and pushed separately so GitHub registers them
+individually.
+
+### CLI mode
 
 ```sh
 # 1. Initialize a configuration for a repository.
@@ -98,6 +119,7 @@ spread evenly across the `start_time`–`end_time` window (or spaced by
 
 | Command               | Purpose                                          |
 |-----------------------|--------------------------------------------------|
+| `gitpulse`            | Interactive quick-run mode (prompts for repo, commits, interval, message). |
 | `gitpulse init`       | Create the configuration file.                   |
 | `gitpulse config`     | Show the effective configuration.                |
 | `gitpulse config set` | Change a single configuration value.             |
