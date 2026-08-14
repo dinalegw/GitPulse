@@ -42,7 +42,7 @@ Run 'gitpulse help <command>' for details about any command.`,
 		Args:          cobra.NoArgs,
 		Version:       version.String(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
+			return runInteractive(cmd)
 		},
 	}
 

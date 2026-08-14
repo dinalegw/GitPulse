@@ -22,7 +22,7 @@ func execute(t *testing.T, args ...string) (string, error) {
 }
 
 func TestRootCommandListsSubcommands(t *testing.T) {
-	out, err := execute(t)
+	out, err := execute(t, "help")
 	if err != nil {
 		t.Fatalf("root help failed: %v", err)
 	}

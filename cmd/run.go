@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/gitpulse/gitpulse/internal/commits"
@@ -138,10 +136,4 @@ func runScheduled(ctx context.Context, a *app, dryRun bool) error {
 	}
 
 	return sched.RunLoop(ctx, a.cfg, job)
-}
-
-// signalContext returns a context cancelled by SIGINT or SIGTERM.
-func signalContext(parent context.Context) context.Context {
-	ctx, _ := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
-	return ctx
 }
