@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -23,47 +24,30 @@ func runInteractive(cmd *cobra.Command) error {
 	fmt.Println("=====================================")
 	fmt.Println()
 
-	repoPath, err := prompt(reader, "Enter repository path")
+	log, err := logger.New("info", "text", "", os.Stderr)
 	if err != nil {
 		return err
 	}
-	repoPath = strings.TrimSpace(repoPath)
-	if repoPath == "" {
-		return fmt.Errorf("repository path cannot be empty")
-	}
+	defer log.Close()
 
-	absPath, err := utils.ExpandPath(repoPath)
-	if err != nil {
-		return fmt.Errorf("invalid path: %w", err)
-	}
-
-	commitsStr, err := prompt(reader, "Number of commits")
+	absPath, err := promptRepoPath(reader, log)
 	if err != nil {
 		return err
 	}
-	commitsStr = strings.TrimSpace(commitsStr)
-	var commitCount int
-	if _, err := fmt.Sscanf(commitsStr, "%d", &commitCount); err != nil || commitCount < 1 {
-		return fmt.Errorf("invalid number of commits: %s", commitsStr)
-	}
 
-	intervalStr, err := prompt(reader, "Minutes between commits")
+	commitCount, err := promptCommitCount(reader)
 	if err != nil {
 		return err
 	}
-	intervalStr = strings.TrimSpace(intervalStr)
-	var intervalMin int
-	if _, err := fmt.Sscanf(intervalStr, "%d", &intervalMin); err != nil || intervalMin < 0 {
-		return fmt.Errorf("invalid interval: %s", intervalStr)
-	}
 
-	message, err := prompt(reader, "Commit message")
+	intervalMin, err := promptInterval(reader)
 	if err != nil {
 		return err
 	}
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return fmt.Errorf("commit message cannot be empty")
+
+	message, err := promptMessage(reader)
+	if err != nil {
+		return err
 	}
 
 	template := message
@@ -105,12 +89,6 @@ func runInteractive(cmd *cobra.Command) error {
 		}
 		return fmt.Errorf("configuration is not valid")
 	}
-
-	log, err := logger.New("info", "text", "", os.Stderr)
-	if err != nil {
-		return err
-	}
-	defer log.Close()
 
 	client := git.New(absPath, git.NewRealRunner(log))
 	cycle, err := commits.NewCycle(cfg, client, log, false)
@@ -161,6 +139,96 @@ func runInteractive(cmd *cobra.Command) error {
 	fmt.Println("=====================================")
 
 	return nil
+}
+
+func promptRepoPath(reader *bufio.Reader, log *logger.Logger) (string, error) {
+	for attempts := 0; attempts < 3; attempts++ {
+		repoPath, err := prompt(reader, "Enter repository path")
+		if err != nil {
+			return "", err
+		}
+		repoPath = strings.TrimSpace(repoPath)
+		if repoPath == "" {
+			fmt.Println("Error: repository path cannot be empty. Please try again.")
+			continue
+		}
+
+		absPath, err := utils.ExpandPath(repoPath)
+		if err != nil {
+			fmt.Printf("Error: invalid path: %v. Please try again.\n", err)
+			continue
+		}
+
+		if !utils.DirExists(absPath) {
+			fmt.Printf("Error: directory does not exist: %s. Please try again.\n", absPath)
+			continue
+		}
+
+		client := git.New(absPath, git.NewRealRunner(log))
+		ctx := context.Background()
+		isRepo, err := client.Detect(ctx)
+		if err != nil {
+			fmt.Printf("Error: cannot inspect repository: %v. Please try again.\n", err)
+			continue
+		}
+		if !isRepo {
+			fmt.Printf("Error: %s is not a git working tree. Run 'git init' there first. Please try again.\n", absPath)
+			continue
+		}
+
+		return absPath, nil
+	}
+	return "", fmt.Errorf("too many invalid repository path attempts")
+}
+
+func promptCommitCount(reader *bufio.Reader) (int, error) {
+	for attempts := 0; attempts < 3; attempts++ {
+		commitsStr, err := prompt(reader, "Number of commits")
+		if err != nil {
+			return 0, err
+		}
+		commitsStr = strings.TrimSpace(commitsStr)
+		var commitCount int
+		if _, err := fmt.Sscanf(commitsStr, "%d", &commitCount); err != nil || commitCount < 1 {
+			fmt.Println("Error: number of commits must be a positive integer. Please try again.")
+			continue
+		}
+		return commitCount, nil
+	}
+	return 0, fmt.Errorf("too many invalid commit count attempts")
+}
+
+func promptInterval(reader *bufio.Reader) (int, error) {
+	for attempts := 0; attempts < 3; attempts++ {
+		intervalStr, err := prompt(reader, "Minutes between commits")
+		if err != nil {
+			return 0, err
+		}
+		intervalStr = strings.TrimSpace(intervalStr)
+		var intervalMin int
+		if _, err := fmt.Sscanf(intervalStr, "%d", &intervalMin); err != nil || intervalMin < 0 {
+			fmt.Println("Error: interval must be zero or a positive integer. Please try again.")
+			continue
+		}
+		return intervalMin, nil
+	}
+	return 0, fmt.Errorf("too many invalid interval attempts")
+}
+
+func promptMessage(reader *bufio.Reader) (string, error) {
+	for attempts := 0; attempts < 3; attempts++ {
+		message, err := prompt(reader, "Commit message")
+		if err != nil {
+			return "", err
+		}
+		message = strings.TrimSpace(message)
+		if message == "" {
+			fmt.Println("Error: commit message cannot be empty. Please try again.")
+			continue
+		}
+		return message, nil
+	}
+	return "", fmt.Errorf("too many invalid message attempts")
 }
 
 func prompt(reader *bufio.Reader, text string) (string, error) {
