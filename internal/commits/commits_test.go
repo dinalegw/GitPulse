@@ -129,6 +129,23 @@ func TestCycleCreatesCommitsAndPushes(t *testing.T) {
 	}
 }
 
+func TestCycleSkipsPushWhenNoRemote(t *testing.T) {
+	cfg, _ := newTestEnv(t, false)
+	c := newCycle(t, cfg, false)
+
+	res, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if res.Created != 3 {
+		t.Errorf("Created = %d, want 3", res.Created)
+	}
+	if res.Pushed {
+		t.Error("Pushed = true for repo without remote, want false")
+	}
+}
+
 func TestCycleSequentialNumbers(t *testing.T) {
 	cfg, repo := newTestEnv(t, false)
 	c := newCycle(t, cfg, false)

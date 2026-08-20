@@ -174,6 +174,72 @@ func TestPushFailsWithContext(t *testing.T) {
 	}
 }
 
+func TestIsBare(t *testing.T) {
+	run := newFakeRunner()
+	run.results["git rev-parse --is-bare-repository"] = "true"
+
+	c := New("/repo", run)
+	bare, err := c.IsBare(context.Background())
+	if err != nil || !bare {
+		t.Fatalf("IsBare() = %v, %v; want true, nil", bare, err)
+	}
+}
+
+func TestIsBareFalse(t *testing.T) {
+	run := newFakeRunner()
+	run.results["git rev-parse --is-bare-repository"] = "false"
+
+	c := New("/repo", run)
+	bare, err := c.IsBare(context.Background())
+	if err != nil || bare {
+		t.Fatalf("IsBare() = %v, %v; want false, nil", bare, err)
+	}
+}
+
+func TestTopLevel(t *testing.T) {
+	run := newFakeRunner()
+	run.results["git rev-parse --show-toplevel"] = "/repo"
+
+	c := New("/repo", run)
+	top, err := c.TopLevel(context.Background())
+	if err != nil || top != "/repo" {
+		t.Fatalf("TopLevel() = %q, %v; want /repo, nil", top, err)
+	}
+}
+
+func TestPull(t *testing.T) {
+	run := newFakeRunner()
+	run.results["git pull origin main"] = "Updating..."
+
+	c := New("/repo", run)
+	if err := c.Pull(context.Background(), "origin", "main"); err != nil {
+		t.Fatalf("Pull failed: %v", err)
+	}
+	if len(run.calls) != 1 || run.calls[0] != "git pull origin main" {
+		t.Errorf("Pull calls = %v, want [git pull origin main]", run.calls)
+	}
+}
+
+func TestAddRemote(t *testing.T) {
+	run := newFakeRunner()
+	run.results["git remote add origin https://example.com/repo.git"] = ""
+
+	c := New("/repo", run)
+	if err := c.AddRemote(context.Background(), "origin", "https://example.com/repo.git"); err != nil {
+		t.Fatalf("AddRemote failed: %v", err)
+	}
+}
+
+func TestSetRemote(t *testing.T) {
+	run := newFakeRunner()
+	run.results["git remote set-url origin https://example.com/repo.git"] = ""
+
+	c := New("/repo", run)
+	if err := c.SetRemote(context.Background(), "origin", "https://example.com/repo.git"); err != nil {
+		t.Fatalf("SetRemote failed: %v", err)
+	}
+}
+
 func TestLastCommitTimeAndCount(t *testing.T) {
 	run := newFakeRunner()
 	run.results["git log -1 --format=%ct"] = "1750000000"

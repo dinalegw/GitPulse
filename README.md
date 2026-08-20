@@ -13,12 +13,28 @@ explicit configuration.
 > operations. You are responsible for ensuring that automated commits
 > accurately reflect meaningful repository activity.
 
+Developed by **BLACKSAUCE**
+
 ---
 
 ## Features
 
 - **Interactive quick-run mode** — run `gitpulse` with no arguments and it
   walks you through repository path, commit count, interval, and message.
+- Auto-detects Git repository in current directory and offers it as default.
+- Smart repository path resolution: absolute paths, relative paths, `~`
+  expansion, paths with spaces, and single-word folder names.
+- Home-directory fallback: type a folder name like `Tatme` and GitPulse will
+  automatically check `~/Tatme` if it doesn't exist in the current directory.
+- Shell-command protection: inputs like `pwd`, `ls`, `cd`, `git status` are
+  rejected with a helpful hint instead of being treated as paths.
+- Pre-commit `git pull` syncs the local repository with the remote before
+  any automated commits are created.
+- README.md validation: warns if missing, offers to create one automatically.
+- Dirty working tree protection: refuses to run if uncommitted changes exist.
+- Detached HEAD detection: stops safely instead of creating commits in an
+  ambiguous state.
+- Bare repository detection: explains why GitPulse needs a working tree.
 - Initialize GitPulse and store human-readable configuration.
 - Configure a repository, remote branch, commits per day, schedule window,
   timezone, and logging level.
@@ -65,15 +81,52 @@ Run `gitpulse` with no subcommand and it will prompt you for everything:
 ```text
 Welcome to GitPulse Interactive Mode
 =====================================
+Developed by BLACKSAUCE
+Version: GitPulse v1.0.0
 
-Enter repository path: /path/to/repo
-Number of commits: 5
+Current directory: /home/user/GitPulse
+
+Detected Git repository in current directory:
+/home/user/GitPulse
+
+Use this repository? [Y/n]: y
+
+Repository: /home/user/GitPulse
+Branch:     main
+Remote:    origin
+README:    README.md
+
+Pulling latest changes from origin/main...
+Repository is up to date with origin/main.
+
+Number of commits: 2
 Minutes between commits: 0
-Commit message: Updating Repo
+Commit message: chore: test
+
+Starting: 2 commit(s) to /home/user/GitPulse
+Interval: 0 minutes between commits
+Message:  chore: test
+
+[14:02:03] Creating commit 1 of 2...
+[14:02:03] Created commit #1 (pushed: true)
+[14:02:03] Creating commit 2 of 2...
+[14:02:03] Created commit #2 (pushed: true)
+
+=====================================
+Done!
+Total commits created: 2
+Total commits skipped: 0
+Pushed:                true
+Duration:              21ms
+Finished at:           2026-08-19 14:02:03 WAST
+=====================================
 ```
 
-Each commit is created and pushed separately so GitHub registers them
-individually.
+If you type a single folder name like `Tatme`, GitPulse checks the current
+directory first, then falls back to `~/Tatme` automatically.
+
+If you accidentally type a shell command like `pwd` or `ls`, GitPulse will
+reject it with a helpful hint instead of treating it as a path.
 
 ### CLI mode
 

@@ -29,6 +29,9 @@ var (
 
 // String returns a single-line, human readable version string.
 func String() string {
+	if Commit == "unknown" || Commit == "" {
+		return fmt.Sprintf("GitPulse v%s", Version)
+	}
 	return fmt.Sprintf("GitPulse v%s (%s)", Version, Commit)
 }
 

@@ -163,6 +163,31 @@ func (c *Client) Push(ctx context.Context, remote, branch string) error {
 	return nil
 }
 
+// SetRemote adds or updates a remote with the given name and URL.
+func (c *Client) SetRemote(ctx context.Context, name, url string) error {
+	if _, err := c.run.Run(ctx, c.dir, "remote", "set-url", name, url); err != nil {
+		return fmt.Errorf("cannot set remote %q to %q: %w", name, url, err)
+	}
+	return nil
+}
+
+// AddRemote adds a remote with the given name and URL. It returns an error if
+// the remote already exists.
+func (c *Client) AddRemote(ctx context.Context, name, url string) error {
+	if _, err := c.run.Run(ctx, c.dir, "remote", "add", name, url); err != nil {
+		return fmt.Errorf("cannot add remote %q to %q: %w (the remote may already exist)", name, url, err)
+	}
+	return nil
+}
+
+// Pull pulls changes from the remote into the current branch.
+func (c *Client) Pull(ctx context.Context, remote, branch string) error {
+	if _, err := c.run.Run(ctx, c.dir, "pull", remote, branch); err != nil {
+		return fmt.Errorf("cannot pull from %s/%s: %w (verify the remote exists and that you have pull access)", remote, branch, err)
+	}
+	return nil
+}
+
 // LogCount returns the number of commits reachable from HEAD.
 func (c *Client) LogCount(ctx context.Context) (int, error) {
 	out, err := c.run.Run(ctx, c.dir, "rev-list", "--count", "HEAD")
@@ -197,6 +222,24 @@ func (c *Client) LastCommitTime(ctx context.Context) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("repository has no commits yet")
 	}
 	return time.Unix(unix, 0), nil
+}
+
+// IsBare reports whether the repository at c.dir is a bare repository.
+func (c *Client) IsBare(ctx context.Context) (bool, error) {
+	out, err := c.run.Run(ctx, c.dir, "rev-parse", "--is-bare-repository")
+	if err != nil {
+		return false, fmt.Errorf("cannot determine if repository is bare: %w", err)
+	}
+	return out == "true", nil
+}
+
+// TopLevel returns the absolute path to the top-level working tree directory.
+func (c *Client) TopLevel(ctx context.Context) (string, error) {
+	out, err := c.run.Run(ctx, c.dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("cannot determine repository root: %w", err)
+	}
+	return out, nil
 }
 
 // RelativePath resolves a path inside the repository to an absolute path.

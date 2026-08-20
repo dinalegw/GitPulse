@@ -169,11 +169,12 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 	}
 
 	if res.Created > 0 && !c.dryRun {
-		if err := c.push(ctx); err != nil {
+		pushed, err := c.push(ctx)
+		if err != nil {
 			res.Duration = time.Since(start)
 			return res, err
 		}
-		res.Pushed = true
+		res.Pushed = pushed
 	}
 
 	res.Duration = time.Since(start)
@@ -219,19 +220,20 @@ func (c *Cycle) commitOnce(ctx context.Context, when time.Time, seq int) (bool, 
 // A missing push_remote/remote_branch or an unconfigured remote is a soft
 // skip (warned, not fatal): local-only repositories remain fully usable.
 // Real push failures (network, auth, rejected refs) return an error.
-func (c *Cycle) push(ctx context.Context) error {
+// It returns true only when a push was actually attempted and succeeded.
+func (c *Cycle) push(ctx context.Context) (bool, error) {
 	if c.cfg.PushRemote == "" || c.cfg.RemoteBranch == "" {
 		c.log.Warn("skipping push: push_remote and remote_branch are not configured")
-		return nil
+		return false, nil
 	}
 
 	hasRemote, err := c.client.HasRemote(ctx, c.cfg.PushRemote)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !hasRemote {
 		c.log.Warn("skipping push: remote %q is not configured in the repository; add it with 'git remote add %s <url>'", c.cfg.PushRemote, c.cfg.PushRemote)
-		return nil
+		return false, nil
 	}
 
 	if c.log != nil {
@@ -241,10 +243,10 @@ func (c *Cycle) push(ctx context.Context) error {
 		}).Info("pushing commits")
 	}
 	if err := c.client.Push(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
-		return err
+		return false, err
 	}
 	if c.log != nil {
 		c.log.WithField(logger.FieldPushed, true).Info("push completed")
 	}
-	return nil
+	return true, nil
 }
