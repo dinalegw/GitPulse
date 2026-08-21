@@ -54,7 +54,13 @@ func TestRunLoopCancellationDuringSleepIsClean(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- s.RunLoop(ctx, cfg, func(context.Context) error { t.Fatal("job should not run") ; return nil }) }()
+	jobRan := make(chan struct{}, 1)
+	go func() {
+		done <- s.RunLoop(ctx, cfg, func(context.Context) error {
+			jobRan <- struct{}{}
+			return nil
+		})
+	}()
 
 	time.Sleep(10 * time.Millisecond)
 	cancel()
@@ -66,5 +72,11 @@ func TestRunLoopCancellationDuringSleepIsClean(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("RunLoop did not terminate after cancellation")
+	}
+
+	select {
+	case <-jobRan:
+		t.Fatal("job ran after cancellation")
+	default:
 	}
 }
