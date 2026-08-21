@@ -37,12 +37,15 @@ func joinArgs(args []string) string {
 }
 
 func safeRepositoryRunner() *repositoryFakeRunner {
-	return &repositoryFakeRunner{results: map[string]string{
-		"git rev-parse --is-inside-work-tree":           "true",
-		"git rev-parse --is-bare-repository":            "false",
-		"git rev-parse --abbrev-ref HEAD":               "main",
-		"git status --porcelain --untracked-files=no": "",
-	}, errors: map[string]error{}}
+	run := &repositoryFakeRunner{
+		results: make(map[string]string),
+		errors:  make(map[string]error),
+	}
+	run.results["git rev-parse --is-inside-work-tree"] = "true"
+	run.results["git rev-parse --is-bare-repository"] = "false"
+	run.results["git rev-parse --abbrev-ref HEAD"] = "main"
+	run.results["git status --porcelain --untracked-files=no"] = ""
+	return run
 }
 
 func safetyConfig() config.Config {
