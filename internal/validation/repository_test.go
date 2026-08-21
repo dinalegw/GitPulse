@@ -38,16 +38,20 @@ func joinArgs(args []string) string {
 
 func safeRepositoryRunner() *repositoryFakeRunner {
 	return &repositoryFakeRunner{results: map[string]string{
-		"git rev-parse --is-inside-work-tree": "true",
-		"git rev-parse --is-bare-repository":  "false",
-		"git rev-parse --abbrev-ref HEAD":     "main",
+		"git rev-parse --is-inside-work-tree":           "true",
+		"git rev-parse --is-bare-repository":            "false",
+		"git rev-parse --abbrev-ref HEAD":               "main",
 		"git status --porcelain --untracked-files=no": "",
 	}, errors: map[string]error{}}
 }
 
 func safetyConfig() config.Config {
-	cfg := config.Config{RepositoryPath: "/repo", RemoteBranch: "main", MetadataDir: ".gitpulse", MetadataFile: "activity.log"}
-	return cfg
+	return config.Config{
+		RepositoryPath: "/repo",
+		RemoteBranch:   "main",
+		MetadataDir:    ".gitpulse",
+		MetadataFile:   "activity.log",
+	}
 }
 
 func TestValidateRepositoryForMutationAllowsSafeWorkingTree(t *testing.T) {
