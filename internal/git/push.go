@@ -2,7 +2,6 @@ package git
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -119,20 +118,16 @@ func pushRecommendation(kind PushFailureKind, remote, branch string) string {
 }
 
 var (
-	credentialURLRE = regexp.MustCompile(`(?i)(https?://)([^/@\s]+):([^/@\s]+)@`)
+	credentialURLRE    = regexp.MustCompile(`(?i)(https?://)([^/@\s]+):([^/@\s]+)@`)
 	secretAssignmentRE = regexp.MustCompile(`(?i)(password|passwd|token|access_token|authorization)=([^\s&]+)`)
 )
 
 func sanitizeGitOutput(s string) string {
 	s = credentialURLRE.ReplaceAllString(s, "$1<redacted>@")
 	s = secretAssignmentRE.ReplaceAllString(s, "$1=<redacted>")
-	// Also parse URLs that contain escaped or unusual user-info without ever
-	// logging the raw credential-bearing URL.
 	if u, err := url.Parse(strings.TrimSpace(s)); err == nil && u.User != nil {
 		u.User = nil
 		s = u.String()
 	}
 	return strings.TrimSpace(s)
 }
-
-var _ = errors.Is
