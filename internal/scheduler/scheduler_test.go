@@ -10,7 +10,6 @@ import (
 	"github.com/gitpulse/gitpulse/internal/logger"
 )
 
-// fakeClock lets tests control time deterministically.
 type fakeClock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -90,7 +89,7 @@ func TestEventsForDaySpreadsEvenly(t *testing.T) {
 func TestEventsForDayUsesInterval(t *testing.T) {
 	cfg := testConfig()
 	cfg.CommitsPerDay = 10
-	cfg.CommitIntervalMinutes = 120 // every 2 hours from 09:00 to 17:00
+	cfg.CommitIntervalMinutes = 120
 
 	clock := newFakeClock(at(12, 0, 0))
 	s := NewDailySchedulerWithClock(clock, logger.NewDiscard())
@@ -125,7 +124,7 @@ func TestEventsForDaySingleCommit(t *testing.T) {
 
 func TestEventsForDayInvalidConfig(t *testing.T) {
 	cfg := testConfig()
-	cfg.Timezone = "Mars/Olympus" // invalid timezone
+	cfg.Timezone = "Mars/Olympus"
 
 	clock := newFakeClock(at(12, 0, 0))
 	s := NewDailySchedulerWithClock(clock, logger.NewDiscard())
@@ -159,7 +158,7 @@ func TestNextRunInsideWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if next.Format("15:04") != "15:00" {
-		t.Errorf("NextRun at 12:00 = %s, want 15:00", next.Format("15:04"))
+		t.Errorf("NextRun at 12:00 = %s, want 15:00", next)
 	}
 }
 
@@ -173,7 +172,7 @@ func TestNextRunBeforeWindowStartsAtStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	if next.Format("15:04") != "09:00" {
-		t.Errorf("NextRun at 07:00 = %s, want 09:00", next.Format("15:04"))
+		t.Errorf("NextRun at 07:00 = %s, want 09:00", next)
 	}
 }
 
@@ -190,13 +189,13 @@ func TestNextRunAfterWindowRollsToTomorrow(t *testing.T) {
 		t.Errorf("NextRun should be tomorrow, got %v", next)
 	}
 	if next.Format("15:04") != "09:00" {
-		t.Errorf("NextRun = %s, want 09:00", next.Format("15:04"))
+		t.Errorf("NextRun = %s, want 09:00", next)
 	}
 }
 
 func TestRunLoopExecutesAtScheduledTimes(t *testing.T) {
 	cfg := testConfig()
-	cfg.CommitsPerDay = 2 // events at 09:00 and 18:00
+	cfg.CommitsPerDay = 2
 
 	clock := newFakeClock(at(8, 59, 50))
 	s := NewDailySchedulerWithClock(clock, logger.NewDiscard())
@@ -218,7 +217,6 @@ func TestRunLoopExecutesAtScheduledTimes(t *testing.T) {
 		done <- s.RunLoop(ctx, cfg, job)
 	}()
 
-	// Wait until the first job has run, then cancel.
 	for {
 		mu.Lock()
 		if len(ran) > 0 {
@@ -246,7 +244,7 @@ func TestRunLoopExecutesAtScheduledTimes(t *testing.T) {
 
 func TestRunLoopJobErrorsDoNotStopLoop(t *testing.T) {
 	cfg := testConfig()
-	cfg.CommitsPerDay = 1 // single event at 09:00
+	cfg.CommitsPerDay = 1
 
 	clock := newFakeClock(at(8, 59, 55))
 	s := NewDailySchedulerWithClock(clock, logger.NewDiscard())
@@ -254,27 +252,24 @@ func TestRunLoopJobErrorsDoNotStopLoop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	calls := 0
+	jobCalled := make(chan struct{}, 1)
 	job := func(ctx context.Context) error {
-		calls++
-		return errJobFailed // first call fails, loop must continue
+		jobCalled <- struct{}{}
+		return errJobFailed
 	}
 
 	done := make(chan error, 1)
 	go func() { done <- s.RunLoop(ctx, cfg, job) }()
 
-	// After the first failure the loop waits for tomorrow 09:00.
-	for {
-		if calls > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-jobCalled:
+	case <-time.After(time.Second):
+		t.Fatal("job was never called")
 	}
 	cancel()
-	<-done
 
-	if calls == 0 {
-		t.Error("job was never called")
+	if err := <-done; err != nil {
+		t.Fatalf("RunLoop returned error: %v", err)
 	}
 }
 
