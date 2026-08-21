@@ -1,15 +1,11 @@
 // Package scheduler computes and executes GitPulse's daily commit schedule.
-//
-// Version 1.0 ships a daily scheduler: it spreads a configured number of
-// commit events evenly across a daily time window (or at a fixed interval),
-// all in a user-configurable timezone. The scheduler is exposed through the
-// Scheduler interface so future versions can swap in platform schedulers or
-// hosted workers without touching the rest of the codebase.
 package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gitpulse/gitpulse/internal/config"
@@ -18,20 +14,13 @@ import (
 )
 
 // Job is a unit of scheduled work. The scheduler calls it at each scheduled
-// time and continues running even when a job returns an error.
+// time and continues running when a recoverable job error is returned.
 type Job func(ctx context.Context) error
 
 // Scheduler plans commit events and runs them on a schedule.
 type Scheduler interface {
-	// EventsForDay returns the commit times scheduled for the given day in
-	// the configuration's timezone.
 	EventsForDay(day time.Time, cfg config.Config) ([]time.Time, error)
-
-	// NextRun returns the next commit event time strictly after now, or the
-	// first event of tomorrow if today's window has already ended.
 	NextRun(now time.Time, cfg config.Config) (time.Time, error)
-
-	// RunLoop executes job at every scheduled event until ctx is cancelled.
 	RunLoop(ctx context.Context, cfg config.Config, job Job) error
 }
 
@@ -44,11 +33,17 @@ type Clock interface {
 // RealClock implements Clock using the system time.
 type RealClock struct{}
 
-// Now returns the current time.
 func (RealClock) Now() time.Time { return time.Now() }
 
-// Sleep blocks until d elapses or ctx is cancelled.
 func (RealClock) Sleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
 	select {
 	case <-time.After(d):
 		return nil
@@ -57,13 +52,16 @@ func (RealClock) Sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// DailyScheduler implements Scheduler for a repeating daily window.
+// DailyScheduler implements a repeating daily window. Its lifecycle state is
+// protected so the same scheduler instance cannot run two loops concurrently.
 type DailyScheduler struct {
 	clock Clock
 	log   *logger.Logger
+
+	mu      sync.Mutex
+	running bool
 }
 
-// NewDailyScheduler creates a DailyScheduler using the system clock.
 func NewDailyScheduler(log *logger.Logger) *DailyScheduler {
 	if log == nil {
 		log = logger.NewDiscard()
@@ -71,21 +69,16 @@ func NewDailyScheduler(log *logger.Logger) *DailyScheduler {
 	return &DailyScheduler{clock: RealClock{}, log: log}
 }
 
-// NewDailySchedulerWithClock creates a DailyScheduler using an injected clock
-// (primarily for tests).
 func NewDailySchedulerWithClock(clock Clock, log *logger.Logger) *DailyScheduler {
+	if clock == nil {
+		clock = RealClock{}
+	}
+	if log == nil {
+		log = logger.NewDiscard()
+	}
 	return &DailyScheduler{clock: clock, log: log}
 }
 
-// EventsForDay returns the commit times scheduled for day in the configured
-// timezone.
-//
-// When commit_interval_minutes is greater than zero it defines the spacing
-// between events, otherwise the events are spread evenly across the window.
-// In both cases the number of events never exceeds commits_per_day.
-//
-// Only schedule-relevant fields are validated here; repository validation is
-// the responsibility of the validation package before a run starts.
 func (s *DailyScheduler) EventsForDay(day time.Time, cfg config.Config) ([]time.Time, error) {
 	loc, err := utils.LoadLocation(cfg.Timezone)
 	if err != nil {
@@ -135,8 +128,6 @@ func (s *DailyScheduler) EventsForDay(day time.Time, cfg config.Config) ([]time.
 	return events, nil
 }
 
-// NextRun returns the next event after now. If today's window has no
-// remaining events, the first event of tomorrow is returned.
 func (s *DailyScheduler) NextRun(now time.Time, cfg config.Config) (time.Time, error) {
 	events, err := s.EventsForDay(now, cfg)
 	if err != nil {
@@ -149,7 +140,6 @@ func (s *DailyScheduler) NextRun(now time.Time, cfg config.Config) (time.Time, e
 		}
 	}
 
-	// Today's window is done; the next run is the first event of tomorrow.
 	tomorrow := now.AddDate(0, 0, 1)
 	events, err = s.EventsForDay(tomorrow, cfg)
 	if err != nil {
@@ -161,13 +151,34 @@ func (s *DailyScheduler) NextRun(now time.Time, cfg config.Config) (time.Time, e
 	return events[0], nil
 }
 
-// RunLoop executes job at each scheduled event until ctx is cancelled. A job
-// error is logged and the loop continues with the next event; it never stops
-// the daemon.
+// RunLoop owns its running flag under mu. Job failures are recoverable and are
+// logged without terminating the scheduler; context cancellation is a clean
+// shutdown and any other scheduler error is returned to the caller.
 func (s *DailyScheduler) RunLoop(ctx context.Context, cfg config.Config, job Job) error {
+	if job == nil {
+		return fmt.Errorf("scheduled job must not be nil")
+	}
+
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return fmt.Errorf("scheduler is already running")
+	}
+	s.running = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+	}()
+
 	s.log.Info("schedule loop started; press Ctrl+C to stop")
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil
+		}
+
 		now := s.clock.Now()
 		next, err := s.NextRun(now, cfg)
 		if err != nil {
@@ -182,17 +193,29 @@ func (s *DailyScheduler) RunLoop(ctx context.Context, cfg config.Config, job Job
 		}).Info("next scheduled run")
 
 		if err := s.clock.Sleep(ctx, wait); err != nil {
-			return nil // ctx cancelled
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+			return fmt.Errorf("scheduler sleep failed: %w", err)
 		}
 
+		if err := ctx.Err(); err != nil {
+			return nil
+		}
 		if err := job(ctx); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+				return nil
+			}
 			s.log.Error("scheduled job failed: %v", err)
 		}
 
-		// Prevent a tight loop if the clock jumps backwards.
-		if next.Before(s.clock.Now()) || next.Equal(s.clock.Now()) {
+		clockNow := s.clock.Now()
+		if !next.After(clockNow) {
 			if err := s.clock.Sleep(ctx, time.Second); err != nil {
-				return nil
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return nil
+				}
+				return fmt.Errorf("scheduler backoff failed: %w", err)
 			}
 		}
 	}
