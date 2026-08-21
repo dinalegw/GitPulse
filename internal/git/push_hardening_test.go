@@ -37,6 +37,53 @@ func TestPushDetailedClassifiesAuthentication(t *testing.T) {
 	}
 }
 
+func TestPushDetailedClassifiesFailureMatrix(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want PushFailureKind
+	}{
+		{"authorization", "permission to example/repo.git denied", PushFailureAuthorization},
+		{"network", "Could not resolve host: github.com", PushFailureNetwork},
+		{"remote unavailable", "fatal: 'origin' does not appear to be a git repository", PushFailureRemoteMissing},
+		{"branch missing", "error: src refspec main does not match any", PushFailureBranchMissing},
+		{"protected branch", "remote: protected branch hook declined", PushFailureProtected},
+		{"repository not found", "remote: Repository not found.", PushFailureNotFound},
+		{"generic", "fatal: unexpected git failure", PushFailureGeneric},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := newFakeRunner()
+			run.errors["git push origin main"] = fmt.Errorf("%s", tt.text)
+			c := New("/repo", run)
+			err := c.PushDetailed(context.Background(), "origin", "main")
+			var pushErr *PushError
+			if !asPushError(err, &pushErr) {
+				t.Fatalf("error type = %T, want *PushError", err)
+			}
+			if pushErr.Kind != tt.want {
+				t.Fatalf("kind = %q, want %q; error=%v", pushErr.Kind, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestPushDetailedRedactsCredentialBearingOutput(t *testing.T) {
+	run := newFakeRunner()
+	run.errors["git push origin main"] = fmt.Errorf("fatal: https://user:supersecret@example.com/repo.git password=topsecret")
+
+	c := New("/repo", run)
+	err := c.PushDetailed(context.Background(), "origin", "main")
+	if err == nil {
+		t.Fatal("expected push error")
+	}
+	message := err.Error()
+	if strings.Contains(message, "supersecret") || strings.Contains(message, "topsecret") {
+		t.Fatalf("push error leaked secret: %v", message)
+	}
+}
+
 func TestPushDetailedNeverUsesForcePush(t *testing.T) {
 	run := newFakeRunner()
 	run.errors["git push origin main"] = fmt.Errorf("non-fast-forward")
