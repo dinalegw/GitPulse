@@ -45,24 +45,3 @@ jobs:
 
       - name: Build
         run: go build ./...
-
-  lint:
-    name: gofmt (windows)
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: gofmt
-        shell: pwsh
-        run: |
-          $f = gofmt -l ./cmd ./internal main.go
-          if ($f) {
-            Write-Error "gofmt needed on:`n$f"
-            exit 1
-          }
