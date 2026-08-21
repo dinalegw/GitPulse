@@ -9,6 +9,17 @@ import (
 	"github.com/gitpulse/gitpulse/internal/logger"
 )
 
+type blockingClock struct {
+	now time.Time
+}
+
+func (c *blockingClock) Now() time.Time { return c.now }
+
+func (c *blockingClock) Sleep(ctx context.Context, _ time.Duration) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func TestRunLoopRejectsConcurrentSecondLoop(t *testing.T) {
 	clock := newFakeClock(at(8, 59, 50))
 	s := NewDailySchedulerWithClock(clock, logger.NewDiscard())
@@ -47,7 +58,7 @@ func TestRunLoopRejectsConcurrentSecondLoop(t *testing.T) {
 }
 
 func TestRunLoopCancellationDuringSleepIsClean(t *testing.T) {
-	clock := newFakeClock(at(12, 0, 0))
+	clock := &blockingClock{now: at(12, 0, 0)}
 	s := NewDailySchedulerWithClock(clock, logger.NewDiscard())
 	cfg := testConfig()
 	cfg.CommitsPerDay = 1
