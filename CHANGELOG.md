@@ -5,6 +5,36 @@ All notable changes to GitPulse are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — v1 stabilization
+
+### Fixed
+
+- Hardened the scheduler lifecycle so one `DailyScheduler` cannot run two
+  loops concurrently.
+- Made scheduler cancellation and timer errors explicit and safe.
+- Fixed the existing scheduler race in the job-error regression test so the
+  race detector can validate the test correctly.
+- Centralized repository mutation safety checks for automation cycles.
+- GitPulse now blocks automated mutation for dirty tracked work, bare
+  repositories, detached HEAD, unexpected configured branches, and unsafe
+  metadata paths.
+- Repository safety is re-checked immediately before each real mutation to
+  reduce time-of-check/time-of-use gaps.
+- Git push failures now have explicit categories and actionable guidance.
+- Push recovery never performs pull, rebase, reset, or force-push operations.
+- Push operations remain exactly one non-force attempt per cycle when a remote
+  is configured; no automatic retry policy was added.
+- Push error output is sanitized for common credential-bearing URL and secret
+  assignment patterns before it is surfaced.
+- Made existing absolute-path tests platform-correct so the cross-platform CI
+  suite passes on Windows as well as Unix systems.
+
+### CI
+
+- Added `go test -race ./...` to Unix CI validation.
+- Kept formatting validation on Unix where the repository's canonical source
+  formatting is checked; Windows continues to validate vet, tests, and build.
+
 ## [1.0.0] - 2026-08-07
 
 ### Added

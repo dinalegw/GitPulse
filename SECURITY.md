@@ -33,12 +33,21 @@ GitPulse takes the following measures by design:
   templates is not possible.
 - **No secret handling.** GitPulse does not read, store, or print tokens or
   credentials. Git authentication uses the user's existing git credential
-  helpers.
+  helpers. Common credential-bearing URL and secret-assignment patterns in
+  Git error output are redacted before classified push errors are surfaced.
 - **Restricted file permissions.** The configuration directory is created
   with `0700` and the configuration file with `0600`. Log files use `0600`.
 - **Isolated writes.** GitPulse only writes inside the configured repository's
-  `metadata_dir` (default `.gitpulse/`). `metadata_dir` is validated to be a
-  relative path inside the repository.
+  `metadata_dir` (default `.gitpulse/`). Metadata paths are checked to prevent
+  traversal outside the repository.
+- **Repository mutation safety.** Automated mutation stops when tracked work
+  is dirty, the repository is bare, the repository is in detached HEAD state,
+  or the checked-out branch does not match the configured branch.
+- **Push safety.** GitPulse performs no force pushes and does not automatically
+  pull, rebase, reset, or clean a repository after a push rejection. Push
+  failures are reported and require user-directed recovery when appropriate.
+- **Context-aware Git operations.** Git processes are launched with the
+  operation context so cancellation can terminate a running Git command.
 - **Input validation.** The configuration is validated before any execution;
   invalid configurations are rejected with actionable errors.
 
