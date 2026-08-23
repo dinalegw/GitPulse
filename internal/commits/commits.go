@@ -21,7 +21,6 @@ import (
 	"github.com/gitpulse/gitpulse/internal/validation"
 )
 
-// Metadata owns the GitPulse metadata file that backs every automated commit.
 type Metadata struct {
 	dir  string
 	file string
@@ -29,7 +28,6 @@ type Metadata struct {
 	log  *logger.Logger
 }
 
-// NewMetadata creates a Metadata operating on relDir/relFile inside repoDir.
 func NewMetadata(repoDir, relDir, relFile string, log *logger.Logger) *Metadata {
 	return &Metadata{
 		dir:  filepath.Join(repoDir, relDir),
@@ -39,12 +37,8 @@ func NewMetadata(repoDir, relDir, relFile string, log *logger.Logger) *Metadata 
 	}
 }
 
-// RelPath returns the slash separated path of the metadata file relative to
-// the repository root.
 func (m *Metadata) RelPath() string { return m.rel }
 
-// Count returns the number of pulse lines already recorded in the metadata
-// file. A missing file is treated as zero; nothing is created on disk.
 func (m *Metadata) Count() (int, error) {
 	data, err := os.ReadFile(m.file)
 	if err != nil {
@@ -62,7 +56,6 @@ func (m *Metadata) Count() (int, error) {
 	return count, nil
 }
 
-// Append writes one pulse line to the metadata file atomically.
 func (m *Metadata) Append(when time.Time, seq int) error {
 	line := fmt.Sprintf("%s pulse #%d\n", when.Format(time.RFC3339), seq)
 	if err := os.MkdirAll(m.dir, 0o755); err != nil {
@@ -79,8 +72,6 @@ func (m *Metadata) Append(when time.Time, seq int) error {
 	return nil
 }
 
-// Cycle executes one commit cycle: creating a configured number of commits,
-// staging only the metadata directory, and pushing once at the end.
 type Cycle struct {
 	cfg    config.Config
 	client *git.Client
@@ -89,8 +80,6 @@ type Cycle struct {
 	dryRun bool
 }
 
-// NewCycle builds a Cycle from the given configuration and git client. The
-// configuration is validated before the cycle is returned.
 func NewCycle(cfg config.Config, client *git.Client, log *logger.Logger, dryRun bool) (*Cycle, error) {
 	if problems := validation.Validate(cfg); len(problems) > 0 {
 		return nil, fmt.Errorf("configuration is not valid: %w", problems)
@@ -98,11 +87,13 @@ func NewCycle(cfg config.Config, client *git.Client, log *logger.Logger, dryRun 
 	if log == nil {
 		log = logger.NewDiscard()
 	}
+	if client == nil {
+		return nil, fmt.Errorf("git client is required")
+	}
 	meta := NewMetadata(cfg.RepositoryPath, cfg.MetadataDir, cfg.MetadataFile, log)
 	return &Cycle{cfg: cfg, client: client, meta: meta, log: log, dryRun: dryRun}, nil
 }
 
-// Result summarizes one commit cycle.
 type Result struct {
 	Expected int
 	Created  int
@@ -113,23 +104,15 @@ type Result struct {
 	FirstSeq int
 }
 
-// Run executes a full cycle creating cfg.CommitsPerDay commits.
 func (c *Cycle) Run(ctx context.Context) (Result, error) {
 	return c.RunN(ctx, c.cfg.CommitsPerDay)
 }
 
-// RunN executes a cycle creating up to n commits, capped by the configured
-// max_commits_per_cycle. RunN is used both for the one-shot run command and
-// for individual scheduled commit events.
 func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 	start := time.Now()
 
-	repo, err := c.client.Detect(ctx)
-	if err != nil {
-		return Result{}, fmt.Errorf("cannot inspect repository %q: %w", c.cfg.RepositoryPath, err)
-	}
-	if !repo {
-		return Result{}, fmt.Errorf("%q is not a git working tree; run 'git init' there first", c.cfg.RepositoryPath)
+	if err := c.validateRepository(ctx); err != nil {
+		return Result{}, err
 	}
 
 	if n > c.cfg.MaxCommitsPerCycle {
@@ -139,10 +122,7 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 		n = 1
 	}
 
-	res := Result{
-		Expected: n,
-		DryRun:   c.dryRun,
-	}
+	res := Result{Expected: n, DryRun: c.dryRun}
 
 	startSeq, err := c.meta.Count()
 	if err != nil {
@@ -156,9 +136,25 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 	}
 
 	for i := 0; i < n; i++ {
+		if err := ctx.Err(); err != nil {
+			res.Duration = time.Since(start)
+			return res, err
+		}
+
+		// Re-check immediately before each mutation. This closes the obvious
+		// time-of-check/time-of-use window between an earlier validation and the
+		// actual metadata write/add/commit sequence.
+		if !c.dryRun {
+			if err := validation.ValidateRepositoryForMutation(ctx, c.client, c.cfg); err != nil {
+				res.Duration = time.Since(start)
+				return res, err
+			}
+		}
+
 		seq := startSeq + i + 1
 		created, err := c.commitOnce(ctx, time.Now().In(loc), seq)
 		if err != nil {
+			res.Duration = time.Since(start)
 			return res, err
 		}
 		if created {
@@ -187,8 +183,20 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 	return res, nil
 }
 
-// commitOnce performs a single metadata commit. It returns true when a commit
-// was actually created.
+func (c *Cycle) validateRepository(ctx context.Context) error {
+	if c.dryRun {
+		inside, err := c.client.Detect(ctx)
+		if err != nil {
+			return fmt.Errorf("cannot inspect repository %q: %w", c.cfg.RepositoryPath, err)
+		}
+		if !inside {
+			return fmt.Errorf("%q is not a git working tree; run 'git init' there first", c.cfg.RepositoryPath)
+		}
+		return nil
+	}
+	return validation.ValidateRepositoryForMutation(ctx, c.client, c.cfg)
+}
+
 func (c *Cycle) commitOnce(ctx context.Context, when time.Time, seq int) (bool, error) {
 	message := fmt.Sprintf(c.cfg.CommitMessageTemplate, seq)
 
@@ -216,11 +224,6 @@ func (c *Cycle) commitOnce(ctx context.Context, when time.Time, seq int) (bool, 
 	return created, nil
 }
 
-// push pushes the current branch to the configured remote once per cycle.
-// A missing push_remote/remote_branch or an unconfigured remote is a soft
-// skip (warned, not fatal): local-only repositories remain fully usable.
-// Real push failures (network, auth, rejected refs) return an error.
-// It returns true only when a push was actually attempted and succeeded.
 func (c *Cycle) push(ctx context.Context) (bool, error) {
 	if c.cfg.PushRemote == "" || c.cfg.RemoteBranch == "" {
 		c.log.Warn("skipping push: push_remote and remote_branch are not configured")
@@ -242,7 +245,7 @@ func (c *Cycle) push(ctx context.Context) (bool, error) {
 			logger.FieldBranch: c.cfg.RemoteBranch,
 		}).Info("pushing commits")
 	}
-	if err := c.client.Push(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
+	if err := c.client.PushDetailed(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
 		return false, err
 	}
 	if c.log != nil {

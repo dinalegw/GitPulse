@@ -115,6 +115,24 @@ Without flags, `run` performs one cycle immediately. With `--schedule` it
 stays in the foreground, creating one commit per scheduled event until
 interrupted (requires `enabled: true`).
 
+Before real mutation, GitPulse requires a Git working tree that is not bare,
+is not detached, is on the configured branch, and has no tracked staged or
+working-tree changes. The critical safety checks are repeated immediately
+before each commit mutation. Untracked files are allowed because GitPulse
+stages only its own metadata directory.
+
+A dry run inspects the repository but does not write metadata, stage files,
+create commits, or push.
+
+Push behavior is intentionally conservative:
+
+- no configured remote means pushing is skipped with a warning;
+- a configured remote results in one non-force push attempt per cycle;
+- push failures are classified and reported with actionable guidance;
+- non-fast-forward and protected-branch failures stop the cycle without an
+automatic pull, rebase, reset, clean, or force-push;
+- no automatic push retry policy is enabled.
+
 Examples:
 
 ```

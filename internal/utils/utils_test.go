@@ -53,7 +53,7 @@ func TestExpandPath(t *testing.T) {
 		{"~", home},
 		{"~/x", filepath.Join(home, "x")},
 		{".", mustAbs(t, ".")},
-		{"/abs/path", "/abs/path"},
+		{"/abs/path", mustAbs(t, "/abs/path")},
 	}
 	for _, tt := range tests {
 		got, err := ExpandPath(tt.in)
