@@ -1,4 +1,4 @@
-module github.com/gitpulse/gitpulse
+module github.com/dinalegw/GitPulse
 
 go 1.26.3
 
