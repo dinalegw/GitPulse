@@ -57,3 +57,5 @@ jobs:
           git add -A
           git commit -m 'chore: migrate Go module imports'
           git push
+
+# Temporary migration workflow; removed after the verified module-path commit.
