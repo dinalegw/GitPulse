@@ -80,4 +80,11 @@ jobs:
           mkdir -p "$VERIFY_BIN"
           cd "$VERIFY_DIR"
           GOBIN="$VERIFY_BIN" go install "github.com/dinalegw/GitPulse@${{ github.event.pull_request.head.sha || github.sha }}"
-          "$VERIFY_BIN/gitpulse" version
+          INSTALLED_BIN="$(find "$VERIFY_BIN" -maxdepth 1 -type f -perm -u+x -print -quit)"
+          if [ -z "$INSTALLED_BIN" ]; then
+            echo "go install completed but no executable was produced in $VERIFY_BIN"
+            ls -la "$VERIFY_BIN"
+            exit 1
+          fi
+          echo "Installed executable: $INSTALLED_BIN"
+          "$INSTALLED_BIN" version
