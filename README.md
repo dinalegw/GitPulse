@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/gitpulse-hero.svg" alt="GitPulse — automate, commit, push, repeat" width="100%">
+</div>
+
 # GitPulse
 
 GitPulse is an open-source command-line application that automates scheduled
