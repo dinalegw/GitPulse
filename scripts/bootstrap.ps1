@@ -65,6 +65,10 @@ function Ensure-Curl {
 }
 
 function Install-PrivateGo {
+    if ([Environment]::Is64BitOperatingSystem -eq $false) {
+        Fail '32-bit Windows is not supported by the bootstrap installer.'
+    }
+
     $goRoot = Join-Path $InstallRoot "toolchains\go$RequiredGo"
     $archive = Join-Path $env:TEMP "go$RequiredGo.windows-amd64.zip"
     $url = "https://go.dev/dl/go$RequiredGo.windows-amd64.zip"
@@ -117,8 +121,14 @@ function Ensure-GoModules {
 
 function Install-GitPulse {
     New-Item -ItemType Directory -Force -Path $Prefix | Out-Null
+    $version = (Get-Content -Raw VERSION).Trim()
+    $commit = (& git rev-parse --short HEAD 2>$null)
+    if (-not $commit) { $commit = 'unknown' }
+    $date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $ldflags = "-s -w -X github.com/gitpulse/gitpulse/internal/version.Version=$version -X github.com/gitpulse/gitpulse/internal/version.Commit=$commit -X github.com/gitpulse/gitpulse/internal/version.Date=$date"
+
     Write-Step 'Building GitPulse'
-    & .\scripts\build.sh "$Prefix\gitpulse.exe"
+    & go build -trimpath -ldflags $ldflags -o (Join-Path $Prefix 'gitpulse.exe') .
     if ($LASTEXITCODE -ne 0) { Fail 'GitPulse build failed' }
 }
 
