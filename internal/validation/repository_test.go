@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/gitpulse/gitpulse/internal/config"
-	"github.com/gitpulse/gitpulse/internal/git"
+	"github.com/dinalegw/GitPulse/internal/config"
+	"github.com/dinalegw/GitPulse/internal/git"
 )
 
 type repositoryFakeRunner struct {

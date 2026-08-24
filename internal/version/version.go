@@ -3,9 +3,9 @@
 // The Version, Commit, and Date values can be overridden at build time by
 // the linker using the -X flag, for example:
 //
-//	go build -ldflags "-X github.com/gitpulse/gitpulse/internal/version.Version=1.0.0 \
-//	-X github.com/gitpulse/gitpulse/internal/version.Commit=abcdef \
-//	-X github.com/gitpulse/gitpulse/internal/version.Date=2026-08-07"
+//	go build -ldflags "-X github.com/dinalegw/GitPulse/internal/version.Version=1.0.0 \
+//	-X github.com/dinalegw/GitPulse/internal/version.Commit=abcdef \
+//	-X github.com/dinalegw/GitPulse/internal/version.Date=2026-08-07"
 package version
 
 import (

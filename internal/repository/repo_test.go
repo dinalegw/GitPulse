@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitpulse/gitpulse/internal/git"
+	"github.com/dinalegw/GitPulse/internal/git"
 )
 
 func TestResolveRepositoryPath(t *testing.T) {

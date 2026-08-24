@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/gitpulse/gitpulse/internal/version"
+	"github.com/dinalegw/GitPulse/internal/version"
 	"github.com/spf13/cobra"
 )
 

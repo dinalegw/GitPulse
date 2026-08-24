@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gitpulse/gitpulse/internal/utils"
+	"github.com/dinalegw/GitPulse/internal/utils"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )

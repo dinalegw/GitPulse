@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/gitpulse/gitpulse/internal/utils"
+	"github.com/dinalegw/GitPulse/internal/utils"
 	"github.com/spf13/cobra"
 )
 

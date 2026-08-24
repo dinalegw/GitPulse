@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gitpulse/gitpulse/internal/git"
-	"github.com/gitpulse/gitpulse/internal/validation"
-	"github.com/gitpulse/gitpulse/internal/version"
+	"github.com/dinalegw/GitPulse/internal/git"
+	"github.com/dinalegw/GitPulse/internal/validation"
+	"github.com/dinalegw/GitPulse/internal/version"
 	"github.com/spf13/cobra"
 )
 

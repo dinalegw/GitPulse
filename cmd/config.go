@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/gitpulse/gitpulse/internal/validation"
+	"github.com/dinalegw/GitPulse/internal/validation"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )

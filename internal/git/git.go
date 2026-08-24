@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitpulse/gitpulse/internal/logger"
+	"github.com/dinalegw/GitPulse/internal/logger"
 )
 
 // CommandRunner executes git commands and returns their combined output.

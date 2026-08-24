@@ -7,7 +7,7 @@ package main
 import (
 	"os"
 
-	"github.com/gitpulse/gitpulse/cmd"
+	"github.com/dinalegw/GitPulse/cmd"
 )
 
 func main() {

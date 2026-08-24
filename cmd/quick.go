@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitpulse/gitpulse/internal/commits"
-	"github.com/gitpulse/gitpulse/internal/config"
-	"github.com/gitpulse/gitpulse/internal/git"
-	"github.com/gitpulse/gitpulse/internal/logger"
-	"github.com/gitpulse/gitpulse/internal/repository"
-	"github.com/gitpulse/gitpulse/internal/utils"
-	"github.com/gitpulse/gitpulse/internal/validation"
-	"github.com/gitpulse/gitpulse/internal/version"
+	"github.com/dinalegw/GitPulse/internal/commits"
+	"github.com/dinalegw/GitPulse/internal/config"
+	"github.com/dinalegw/GitPulse/internal/git"
+	"github.com/dinalegw/GitPulse/internal/logger"
+	"github.com/dinalegw/GitPulse/internal/repository"
+	"github.com/dinalegw/GitPulse/internal/utils"
+	"github.com/dinalegw/GitPulse/internal/validation"
+	"github.com/dinalegw/GitPulse/internal/version"
 	"github.com/spf13/cobra"
 )
 

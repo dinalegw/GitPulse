@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gitpulse/gitpulse/internal/utils"
+	"github.com/dinalegw/GitPulse/internal/utils"
 )
 
 type PathError struct {

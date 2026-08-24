@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gitpulse/gitpulse/internal/config"
+	"github.com/dinalegw/GitPulse/internal/config"
 )
 
 // validConfig returns a configuration that passes all checks.

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gitpulse/gitpulse/internal/config"
-	"github.com/gitpulse/gitpulse/internal/scheduler"
+	"github.com/dinalegw/GitPulse/internal/config"
+	"github.com/dinalegw/GitPulse/internal/scheduler"
 	"github.com/spf13/cobra"
 )
 

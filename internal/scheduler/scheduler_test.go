@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gitpulse/gitpulse/internal/config"
-	"github.com/gitpulse/gitpulse/internal/logger"
+	"github.com/dinalegw/GitPulse/internal/config"
+	"github.com/dinalegw/GitPulse/internal/logger"
 )
 
 type fakeClock struct {

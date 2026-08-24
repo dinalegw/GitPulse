@@ -69,3 +69,22 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+      - name: Verify external go install
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY_DIR="$(mktemp -d)"
+          VERIFY_BIN="$VERIFY_DIR/bin"
+          mkdir -p "$VERIFY_BIN"
+          cd "$VERIFY_DIR"
+          GOBIN="$VERIFY_BIN" go install "github.com/dinalegw/GitPulse@${{ github.event.pull_request.head.sha || github.sha }}"
+          INSTALLED_BIN="$(find "$VERIFY_BIN" -maxdepth 1 -type f -perm -u+x -print -quit)"
+          if [ -z "$INSTALLED_BIN" ]; then
+            echo "go install completed but no executable was produced in $VERIFY_BIN"
+            ls -la "$VERIFY_BIN"
+            exit 1
+          fi
+          echo "Installed executable: $INSTALLED_BIN"
+          "$INSTALLED_BIN" version

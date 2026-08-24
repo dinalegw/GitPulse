@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/gitpulse/gitpulse/internal/config"
-	"github.com/gitpulse/gitpulse/internal/utils"
+	"github.com/dinalegw/GitPulse/internal/config"
+	"github.com/dinalegw/GitPulse/internal/utils"
 )
 
 // Problem describes a single configuration error with an explanation of why
