@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gitpulse/gitpulse/internal/commits"
-	"github.com/gitpulse/gitpulse/internal/scheduler"
-	"github.com/gitpulse/gitpulse/internal/validation"
+	"github.com/dinalegw/GitPulse/internal/commits"
+	"github.com/dinalegw/GitPulse/internal/scheduler"
+	"github.com/dinalegw/GitPulse/internal/validation"
 	"github.com/spf13/cobra"
 )
 

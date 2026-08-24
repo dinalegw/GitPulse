@@ -125,7 +125,7 @@ function Install-GitPulse {
     $commit = (& git rev-parse --short HEAD 2>$null)
     if (-not $commit) { $commit = 'unknown' }
     $date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    $ldflags = "-s -w -X github.com/gitpulse/gitpulse/internal/version.Version=$version -X github.com/gitpulse/gitpulse/internal/version.Commit=$commit -X github.com/gitpulse/gitpulse/internal/version.Date=$date"
+    $ldflags = "-s -w -X github.com/dinalegw/GitPulse/internal/version.Version=$version -X github.com/dinalegw/GitPulse/internal/version.Commit=$commit -X github.com/dinalegw/GitPulse/internal/version.Date=$date"
 
     Write-Step 'Building GitPulse'
     & go build -trimpath -ldflags $ldflags -o (Join-Path $Prefix 'gitpulse.exe') .

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitpulse/gitpulse/internal/config"
+	"github.com/dinalegw/GitPulse/internal/config"
 )
 
 // execute runs the root command with the given args, returning stdout.

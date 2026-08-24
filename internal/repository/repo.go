@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gitpulse/gitpulse/internal/git"
+	"github.com/dinalegw/GitPulse/internal/git"
 )
 
 type RepositoryInfo struct {

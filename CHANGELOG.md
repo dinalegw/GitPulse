@@ -67,4 +67,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration file is written with `0600` permissions and the directory
   with `0700`.
 
-[1.0.0]: https://github.com/gitpulse/gitpulse/releases/tag/v1.0.0
+[1.0.0]: https://github.com/dinalegw/GitPulse/releases/tag/v1.0.0

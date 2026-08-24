@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gitpulse/gitpulse/internal/config"
-	"github.com/gitpulse/gitpulse/internal/git"
+	"github.com/dinalegw/GitPulse/internal/config"
+	"github.com/dinalegw/GitPulse/internal/git"
 )
 
 // ValidateRepositoryForMutation enforces the repository invariants required

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitpulse/gitpulse/internal/utils"
+	"github.com/dinalegw/GitPulse/internal/utils"
 )
 
 func testManager(t *testing.T) *Manager {

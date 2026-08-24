@@ -20,9 +20,9 @@ mkdir -p "$(dirname "$OUT")"
 go build \
   -trimpath \
   -ldflags "-s -w \
-    -X github.com/gitpulse/gitpulse/internal/version.Version=${VERSION} \
-    -X github.com/gitpulse/gitpulse/internal/version.Commit=${COMMIT} \
-    -X github.com/gitpulse/gitpulse/internal/version.Date=${DATE}" \
+    -X github.com/dinalegw/GitPulse/internal/version.Version=${VERSION} \
+    -X github.com/dinalegw/GitPulse/internal/version.Commit=${COMMIT} \
+    -X github.com/dinalegw/GitPulse/internal/version.Date=${DATE}" \
   -o "$OUT" .
 
 echo "built $OUT"

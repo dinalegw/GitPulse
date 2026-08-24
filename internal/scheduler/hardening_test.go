@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gitpulse/gitpulse/internal/logger"
+	"github.com/dinalegw/GitPulse/internal/logger"
 )
 
 type blockingClock struct {
