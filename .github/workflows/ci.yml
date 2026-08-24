@@ -88,3 +88,29 @@ jobs:
           fi
           echo "Installed executable: $INSTALLED_BIN"
           "$INSTALLED_BIN" version
+
+      - name: Bootstrap smoke test (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_ROOT="$(mktemp -d)"
+          export GITPULSE_INSTALL_ROOT="$TEST_ROOT/toolchain"
+          export PREFIX="$TEST_ROOT/bin"
+          ./scripts/bootstrap.sh
+          ./scripts/bootstrap.sh
+          "$PREFIX/gitpulse" version
+
+      - name: Bootstrap smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $testRoot = Join-Path $env:RUNNER_TEMP 'gitpulse-bootstrap-test'
+          $env:GITPULSE_INSTALL_ROOT = Join-Path $testRoot 'toolchain'
+          $env:PREFIX = Join-Path $testRoot 'bin'
+          & "$PWD\scripts\bootstrap.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$PWD\scripts\bootstrap.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & (Join-Path $env:PREFIX 'gitpulse.exe') version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
