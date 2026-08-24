@@ -19,7 +19,9 @@ function Fail([string]$Message) {
 function Refresh-Path {
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    $env:Path = "$userPath;$machinePath"
+    $current = $env:Path
+    $parts = @($current, $userPath, $machinePath) | Where-Object { $_ }
+    $env:Path = ($parts -join ';')
 }
 
 function Get-GoVersion {
@@ -64,14 +66,36 @@ function Ensure-Curl {
     }
 }
 
-function Install-PrivateGo {
-    if ([Environment]::Is64BitOperatingSystem -eq $false) {
-        Fail '32-bit Windows is not supported by the bootstrap installer.'
+function Get-GoArchiveName {
+    $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+        'AMD64' { 'amd64' }
+        'ARM64' { 'arm64' }
+        default { Fail "Unsupported Windows architecture: $env:PROCESSOR_ARCHITECTURE" }
     }
+    return "go$RequiredGo.windows-$arch.zip"
+}
 
-    $goRoot = Join-Path $InstallRoot "toolchains\go$RequiredGo"
-    $archive = Join-Path $env:TEMP "go$RequiredGo.windows-amd64.zip"
-    $url = "https://go.dev/dl/go$RequiredGo.windows-amd64.zip"
+function Get-PrivateGoRoot {
+    return (Join-Path $InstallRoot "toolchains\go$RequiredGo")
+}
+
+function Use-PrivateGoIfAvailable {
+    $goRoot = Get-PrivateGoRoot
+    $goExe = Join-Path $goRoot 'bin\go.exe'
+    if (Test-Path $goExe) {
+        $env:GOROOT = $goRoot
+        $env:Path = "$goRoot\bin;$env:Path"
+        Write-Step "Reusing private Go: $(& $goExe version)"
+        return $true
+    }
+    return $false
+}
+
+function Install-PrivateGo {
+    $archiveName = Get-GoArchiveName
+    $goRoot = Get-PrivateGoRoot
+    $archive = Join-Path $env:TEMP $archiveName
+    $url = "https://go.dev/dl/$archiveName"
 
     New-Item -ItemType Directory -Force -Path (Split-Path $goRoot) | Out-Null
     Write-Step "Downloading Go $RequiredGo from go.dev"
@@ -93,15 +117,17 @@ function Install-PrivateGo {
 function Ensure-Go {
     $current = Get-GoVersion
     if ($null -ne $current -and $current -ge $RequiredGo) {
-        Write-Step "Go detected: $(& go version)"
+        Write-Step "Compatible system Go detected: $(& go version)"
         return
     }
 
     if ($null -eq $current) {
-        Write-Host "Go is not installed; installing a private Go $RequiredGo toolchain."
+        Write-Host "Go is not installed."
     } else {
-        Write-Host "System Go $current is older than required $RequiredGo; using a private toolchain."
+        Write-Host "System Go $current is older than required $RequiredGo."
     }
+
+    if (Use-PrivateGoIfAvailable) { return }
     Install-PrivateGo
 }
 

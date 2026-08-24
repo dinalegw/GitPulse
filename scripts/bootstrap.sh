@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # GitPulse bootstrap installer for Linux and macOS.
 #
-# Idempotent baseline setup:
-#   1. verifies/installs Git;
-#   2. verifies Go 1.26.3+ or installs a private Go 1.26.3 toolchain;
+# Safe/idempotent baseline setup:
+#   1. verifies/installs Git only when missing;
+#   2. reuses a compatible system Go, otherwise reuses or installs a private Go toolchain;
 #   3. downloads the exact dependencies declared by go.mod;
 #   4. builds GitPulse;
 #   5. installs it to ~/.local/bin (or PREFIX);
@@ -23,8 +23,8 @@ Usage:
   ./scripts/bootstrap.sh [--upgrade-deps]
 
 Options:
-  --upgrade-deps   Upgrade Go module dependencies after the safe baseline
-                   bootstrap. This may change go.mod/go.sum.
+  --upgrade-deps   Explicitly upgrade Go module dependencies after the safe
+                   baseline bootstrap. This may change go.mod/go.sum.
 
 Environment:
   PREFIX                 Install directory (default ~/.local/bin)
@@ -127,23 +127,42 @@ go_archive_name() {
   printf 'go%s-%s.tar.gz' "$os" "$arch"
 }
 
+private_go_root() {
+  printf '%s/toolchains/go%s' "$INSTALL_ROOT" "$REQUIRED_GO"
+}
+
+use_private_go_if_available() {
+  local root="$(private_go_root)"
+  if [ -x "${root}/bin/go" ]; then
+    export GOROOT="$root"
+    export PATH="$GOROOT/bin:$PATH"
+    say "Reusing private Go: $(go version)"
+    return 0
+  fi
+  return 1
+}
+
 ensure_go() {
   if need_command go; then
     local current
     current="$(go version | sed -E 's/^go version go([^ ]+).*/\1/')"
     if version_ge "$current" "$REQUIRED_GO"; then
-      say "Go detected: $(go version)"
+      say "Compatible system Go detected: $(go version)"
       return
     fi
-    echo "System Go ${current} is older than required ${REQUIRED_GO}; using a private toolchain."
+    echo "System Go ${current} is older than required ${REQUIRED_GO}."
   else
-    echo "Go is not installed; installing a private ${REQUIRED_GO} toolchain."
+    echo "Go is not installed."
+  fi
+
+  if use_private_go_if_available; then
+    return
   fi
 
   local archive_name url archive_dir tmp archive
   archive_name="$(go_archive_name)"
   url="https://go.dev/dl/go${REQUIRED_GO}.${archive_name#go}"
-  archive_dir="${INSTALL_ROOT}/toolchains/go${REQUIRED_GO}"
+  archive_dir="$(private_go_root)"
   tmp="$(mktemp -d)"
   archive="${tmp}/go.tar.gz"
   mkdir -p "${INSTALL_ROOT}/toolchains"
