@@ -52,7 +52,14 @@
   <text x="1190" y="454" font-size="17" fill="#dce7ef">✓ No external service required.</text><text x="1210" y="478" font-size="17" fill="#dce7ef">100% local.</text>
   <rect x="1160" y="540" width="330" height="192" rx="18" fill="#071525" stroke="#29445f"/>
   <text x="1190" y="576" font-size="20" font-weight="700" fill="#4cc9ff">Quick Install</text>
-  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="14" fill="#dce7ef"><text x="1190" y="610">go install github.com/dinalegw/GitPulse@latest</text><text x="1190" y="645">git clone github.com/dinalegw/GitPulse</text><text x="1190" y="669">cd GitPulse</text><text x="1190" y="693">go build -o gitpulse</text></g>
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" fill="#dce7ef">
+    <text x="1190" y="610"># Linux / macOS</text>
+    <text x="1190" y="632">git clone github.com/dinalegw/GitPulse</text>
+    <text x="1190" y="654">cd GitPulse</text>
+    <text x="1190" y="676">./scripts/bootstrap.sh</text>
+    <text x="1190" y="704"># Windows PowerShell</text>
+    <text x="1190" y="726">.\scripts\bootstrap.ps1</text>
+  </g>
   <rect x="42" y="760" width="1448" height="168" rx="20" fill="#071525" stroke="#29445f"/>
   <text x="65" y="798" font-size="20" font-weight="700" fill="#4cc9ff">Powerful Commands</text>
   <g font-size="15">

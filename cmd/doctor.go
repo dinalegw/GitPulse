@@ -63,26 +63,50 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 		return doctorCheck{name: "git is installed", ok: true}
 	}())
 
-	// 2. Configuration file.
-	checks = append(checks, func() doctorCheck {
-		if a.manager.Exists() {
-			return doctorCheck{name: "configuration file exists", ok: true, note: a.configPath}
-		}
-		return doctorCheck{name: "configuration file exists", note: fmt.Sprintf("no configuration file at %s; run 'gitpulse init'", a.configPath)}
-	}())
-
-	// 3. Configuration validity.
-	problems := validation.Validate(a.cfg)
-	if len(problems) > 0 {
-		checks = append(checks, doctorCheck{name: "configuration is valid", note: fmt.Sprintf("%d problem(s) found", len(problems))})
+	// 2. Configuration file. A missing file is a normal state immediately
+	// after installation, so it is a warning rather than an installation
+	// failure. 'gitpulse init' is the remediation.
+	configExists := a.manager.Exists()
+	if configExists {
+		checks = append(checks, doctorCheck{name: "configuration file exists", ok: true, note: a.configPath})
 	} else {
-		checks = append(checks, doctorCheck{name: "configuration is valid", ok: true})
+		checks = append(checks, doctorCheck{
+			name: "configuration file exists",
+			ok:   true,
+			warn: true,
+			note: fmt.Sprintf("no configuration file at %s; run 'gitpulse init' before using repository automation", a.configPath),
+		})
 	}
 
-	// 4. Repository detection.
+	// 3. Configuration validity. Do not fail a fresh installation merely
+	// because no repository has been configured yet.
+	if !configExists {
+		checks = append(checks, doctorCheck{
+			name: "configuration is valid",
+			ok:   true,
+			warn: true,
+			note: "configuration has not been initialized yet",
+		})
+	} else {
+		problems := validation.Validate(a.cfg)
+		if len(problems) > 0 {
+			checks = append(checks, doctorCheck{name: "configuration is valid", note: fmt.Sprintf("%d problem(s) found", len(problems))})
+		} else {
+			checks = append(checks, doctorCheck{name: "configuration is valid", ok: true})
+		}
+	}
+
+	// 4. Repository detection. A repository is required for automation but
+	// is not required merely to install the binary, so an unset repository is
+	// a warning on a fresh machine.
 	checks = append(checks, func() doctorCheck {
 		if a.cfg.RepositoryPath == "" {
-			return doctorCheck{name: "repository is a git working tree", note: "repository_path is not set"}
+			return doctorCheck{
+				name: "repository is a git working tree",
+				ok:   true,
+				warn: true,
+				note: "repository_path is not set; run 'gitpulse init' to configure a repository",
+			}
 		}
 		client := a.newGitClient()
 		repo, err := client.Detect(ctx)
