@@ -23,6 +23,30 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Validate Unix scripts
+        if: runner.os != 'Windows'
+        run: |
+          bash -n scripts/build.sh
+          bash -n scripts/install.sh
+          bash -n scripts/test.sh
+          bash -n scripts/bootstrap.sh
+
+      - name: Validate PowerShell bootstrap
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/scripts/bootstrap.ps1",
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+
       - name: gofmt (unix)
         if: runner.os != 'Windows'
         run: |
