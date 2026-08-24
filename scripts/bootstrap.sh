@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # GitPulse bootstrap installer for Linux and macOS.
 #
-# This script is intentionally idempotent. It verifies the prerequisites,
-# installs a private Go toolchain when the system Go is missing/too old,
-# installs Git with the host package manager when possible, downloads the
-# exact Go module dependencies declared by go.mod, builds GitPulse, and
-# installs it into ~/.local/bin unless PREFIX is supplied.
+# Idempotent baseline setup:
+#   1. verifies/installs Git;
+#   2. verifies Go 1.26.3+ or installs a private Go 1.26.3 toolchain;
+#   3. downloads the exact dependencies declared by go.mod;
+#   4. builds GitPulse;
+#   5. installs it to ~/.local/bin (or PREFIX);
+#   6. runs version + doctor as a post-install gate.
 set -euo pipefail
 
-REPO_URL="https://github.com/dinalegw/GitPulse.git"
 REQUIRED_GO="1.26.3"
 INSTALL_ROOT="${GITPULSE_INSTALL_ROOT:-${HOME}/.gitpulse}"
 PREFIX="${PREFIX:-${HOME}/.local/bin}"
@@ -41,16 +42,22 @@ done
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { echo "Error: $*" >&2; exit 1; }
+need_command() { command -v "$1" >/dev/null 2>&1; }
 
 version_ge() {
-  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    split(a, A, "."); split(b, B, ".");
+    for (i = 1; i <= 3; i++) {
+      av = (A[i] == "" ? 0 : A[i]) + 0;
+      bv = (B[i] == "" ? 0 : B[i]) + 0;
+      if (av > bv) exit 0;
+      if (av < bv) exit 1;
+    }
+    exit 0;
+  }'
 }
 
-need_command() {
-  command -v "$1" >/dev/null 2>&1
-}
-
-install_git_linux() {
+install_linux_packages() {
   if need_command apt-get; then
     sudo apt-get update
     sudo apt-get install -y git ca-certificates curl tar
@@ -65,17 +72,7 @@ install_git_linux() {
   elif need_command zypper; then
     sudo zypper --non-interactive install git ca-certificates curl tar
   else
-    die "Git is missing and no supported Linux package manager was found. Install Git, then rerun this script."
-  fi
-}
-
-install_git_macos() {
-  if need_command brew; then
-    brew install git
-  else
-    echo "Git is missing. Installing Git through Xcode Command Line Tools."
-    xcode-select --install || true
-    die "Finish the Xcode Command Line Tools installation, then rerun this script."
+    die "No supported Linux package manager found. Install Git and curl, then rerun this script."
   fi
 }
 
@@ -87,16 +84,35 @@ ensure_git() {
 
   say "Git is missing; installing it"
   case "$(uname -s)" in
-    Linux) install_git_linux ;;
-    Darwin) install_git_macos ;;
-    *) die "Unsupported Unix platform: $(uname -s)" ;;
+    Linux)
+      install_linux_packages
+      ;;
+    Darwin)
+      if need_command brew; then
+        brew install git
+      else
+        xcode-select --install || true
+        die "Finish the Xcode Command Line Tools installation, then rerun this script."
+      fi
+      ;;
+    *)
+      die "Unsupported Unix platform: $(uname -s)"
+      ;;
   esac
 
   need_command git || die "Git installation completed but git is still not on PATH."
   say "Git ready: $(git --version)"
 }
 
-go_asset() {
+ensure_curl() {
+  need_command curl && return
+  if [ "$(uname -s)" = "Linux" ]; then
+    install_linux_packages
+  fi
+  need_command curl || die "curl is required to bootstrap the toolchain."
+}
+
+go_archive_name() {
   local os arch
   case "$(uname -s)" in
     Linux) os=linux ;;
@@ -108,13 +124,13 @@ go_asset() {
     arm64|aarch64) arch=arm64 ;;
     *) die "Unsupported CPU architecture: $(uname -m)" ;;
   esac
-  printf 'go%s.%s.tar.gz' "${os}" "${arch}"
+  printf 'go%s-%s.tar.gz' "$os" "$arch"
 }
 
 ensure_go() {
   if need_command go; then
     local current
-    current="$(go version | sed -E 's/^go version go([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/')"
+    current="$(go version | sed -E 's/^go version go([^ ]+).*/\1/')"
     if version_ge "$current" "$REQUIRED_GO"; then
       say "Go detected: $(go version)"
       return
@@ -124,9 +140,9 @@ ensure_go() {
     echo "Go is not installed; installing a private ${REQUIRED_GO} toolchain."
   fi
 
-  local asset url archive_dir tmp archive
-  asset="$(go_asset)"
-  url="https://go.dev/dl/go${REQUIRED_GO}.${asset#go}"
+  local archive_name url archive_dir tmp archive
+  archive_name="$(go_archive_name)"
+  url="https://go.dev/dl/go${REQUIRED_GO}.${archive_name#go}"
   archive_dir="${INSTALL_ROOT}/toolchains/go${REQUIRED_GO}"
   tmp="$(mktemp -d)"
   archive="${tmp}/go.tar.gz"
@@ -145,8 +161,9 @@ ensure_go() {
 }
 
 ensure_go_modules() {
-  say "Downloading exact module dependencies"
+  say "Downloading exact module dependencies declared by go.mod"
   go mod download
+
   if [ "$UPGRADE_DEPS" -eq 1 ]; then
     say "Upgrading module dependencies (explicitly requested)"
     go get -u ./...
@@ -165,9 +182,13 @@ build_and_install() {
 }
 
 main() {
-  [[ "$(uname -s)" == "Linux" || "$(uname -s)" == "Darwin" ]] || die "This script supports Linux and macOS. On Windows use scripts/bootstrap.ps1."
-  need_command curl || die "curl is required. Install curl and rerun the bootstrap."
+  case "$(uname -s)" in
+    Linux|Darwin) ;;
+    *) die "This script supports Linux and macOS. On Windows use scripts/bootstrap.ps1." ;;
+  esac
+
   ensure_git
+  ensure_curl
   ensure_go
   ensure_go_modules
   build_and_install
@@ -175,11 +196,11 @@ main() {
   say "Running installation health check"
   "${PREFIX}/gitpulse" version
   echo
-  "${PREFIX}/gitpulse" doctor || {
-    echo "GitPulse installed, but doctor reported an environment/configuration issue."
-    echo "Fix the reported issue and run: gitpulse doctor"
+  if ! "${PREFIX}/gitpulse" doctor; then
+    echo "GitPulse installed, but doctor reported an environment/configuration issue." >&2
+    echo "Fix the reported issue and run: gitpulse doctor" >&2
     exit 1
-  }
+  fi
 
   echo
   echo "GitPulse bootstrap completed successfully."
