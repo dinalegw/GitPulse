@@ -1,1 +1,70 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024"><image width="1536" height="1024" href="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAQAAAYDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/AP/EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAQUCf//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Bf//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Bf//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEABj8Cf//Z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#020812"/><stop offset="1" stop-color="#071322"/></linearGradient>
+  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#42e695"/><stop offset="1" stop-color="#22c1c3"/></linearGradient>
+  <filter id="glow"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1536" height="1024" fill="url(#bg)"/>
+<g font-family="Inter,Segoe UI,Arial,sans-serif">
+  <rect x="42" y="34" width="74" height="74" rx="18" fill="#071b23" stroke="#42e695" stroke-width="3"/>
+  <path d="M55 72h13l8-20 10 40 10-26h15" fill="none" stroke="url(#accent)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <text x="140" y="88" font-size="58" font-weight="800" fill="#f4f8fb">Git<tspan fill="#42e695">Pulse</tspan></text>
+  <rect x="430" y="52" width="92" height="36" rx="12" fill="#063b2d"/><text x="476" y="77" text-anchor="middle" font-size="20" font-weight="700" fill="#61f29c">v1.0.0</text>
+  <text x="45" y="155" font-size="36" font-weight="750" fill="#f4f8fb">Automate Your Git Workflow. <tspan fill="#42e695">Keep Your Repos Alive.</tspan></text>
+  <text x="45" y="193" font-size="19" fill="#a9b9c9">A local CLI that schedules metadata generation, commits, and optional pushes — with safety controls built in.</text>
+  <rect x="1080" y="42" width="410" height="154" rx="20" fill="#071525" stroke="#28435d"/>
+  <text x="1110" y="82" font-size="20" fill="#70f5a7">✓</text><text x="1140" y="82" font-size="19" fill="#e6eef5">Safe by Default</text>
+  <text x="1110" y="123" font-size="20" fill="#4cc9ff">▣</text><text x="1140" y="123" font-size="19" fill="#e6eef5">Local &amp; Private</text>
+  <text x="1110" y="164" font-size="20" fill="#a77bff">ϟ</text><text x="1140" y="164" font-size="19" fill="#e6eef5">Fast &amp; Lightweight</text>
+  <g>
+    <circle cx="82" cy="275" r="31" fill="#092a28" stroke="#42e695"/><text x="82" y="284" text-anchor="middle" font-size="28" fill="#42e695">◷</text>
+    <text x="132" y="267" font-size="22" font-weight="700" fill="#42e695">Smart Scheduling</text><text x="132" y="295" font-size="17" fill="#b6c4d0">Run once or schedule daily automation.</text>
+    <circle cx="82" cy="365" r="31" fill="#092a28" stroke="#42e695"/><text x="82" y="375" text-anchor="middle" font-size="27" fill="#42e695">✓</text>
+    <text x="132" y="357" font-size="22" font-weight="700" fill="#42e695">Safety First</text><text x="132" y="385" font-size="17" fill="#b6c4d0">Validation, dirty-state protection, branch checks.</text>
+    <circle cx="82" cy="455" r="31" fill="#092a28" stroke="#42e695"/><text x="82" y="465" text-anchor="middle" font-size="25" fill="#42e695">›_</text>
+    <text x="132" y="447" font-size="22" font-weight="700" fill="#42e695">Full Automation</text><text x="132" y="475" font-size="17" fill="#b6c4d0">Metadata → git add → commit → optional push.</text>
+    <circle cx="82" cy="545" r="31" fill="#16132e" stroke="#9b72ff"/><text x="82" y="555" text-anchor="middle" font-size="24" fill="#a77bff">⌁</text>
+    <text x="132" y="537" font-size="22" font-weight="700" fill="#a77bff">Stay in Control</text><text x="132" y="565" font-size="17" fill="#b6c4d0">Dry runs, status, logs, validation, doctor.</text>
+    <circle cx="82" cy="635" r="31" fill="#092039" stroke="#4cc9ff"/><text x="82" y="645" text-anchor="middle" font-size="24" fill="#4cc9ff">⚙</text>
+    <text x="132" y="627" font-size="22" font-weight="700" fill="#4cc9ff">Cross-Platform</text><text x="132" y="655" font-size="17" fill="#b6c4d0">Windows, macOS, and Linux.</text>
+  </g>
+  <rect x="398" y="250" width="720" height="352" rx="18" fill="#07101b" stroke="#35506b" stroke-width="2"/>
+  <rect x="398" y="250" width="720" height="45" rx="18" fill="#101d2c"/><circle cx="426" cy="273" r="7" fill="#ff5f56"/><circle cx="450" cy="273" r="7" fill="#ffbd2e"/><circle cx="474" cy="273" r="7" fill="#27c93f"/>
+  <text x="758" y="279" text-anchor="middle" font-size="16" fill="#d6e0ea">gitpulse run</text>
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="16">
+    <text x="428" y="332" fill="#fff">$ gitpulse run</text>
+    <text x="428" y="360" fill="#62ef9a">✓</text><text x="452" y="360" fill="#dce7ef">Repository: /path/to/your/repo</text>
+    <text x="428" y="388" fill="#62ef9a">✓</text><text x="452" y="388" fill="#dce7ef">Validation: OK</text>
+    <text x="428" y="416" fill="#62ef9a">✓</text><text x="452" y="416" fill="#dce7ef">Generating metadata...</text>
+    <text x="428" y="444" fill="#62ef9a">✓</text><text x="452" y="444" fill="#dce7ef">Writing .gitpulse/activity.log</text>
+    <text x="428" y="472" fill="#62ef9a">✓</text><text x="452" y="472" fill="#dce7ef">Staging changes...</text>
+    <text x="428" y="500" fill="#62ef9a">✓</text><text x="452" y="500" fill="#dce7ef">Committing: chore: GitPulse automated pulse #4</text>
+    <text x="428" y="528" fill="#62ef9a">✓</text><text x="452" y="528" fill="#dce7ef">Pushing to origin/main...</text>
+    <text x="428" y="556" fill="#62ef9a">✓</text><text x="452" y="556" fill="#62ef9a">Push successful! GitPulse: repo is alive.</text>
+  </g>
+  <rect x="398" y="620" width="720" height="112" rx="18" fill="#071525" stroke="#29445f"/>
+  <text x="758" y="650" text-anchor="middle" font-size="19" font-weight="700" fill="#42e695">One Command. Full Lifecycle.</text>
+  <g fill="#d9e5ef" font-size="16" text-anchor="middle"><text x="490" y="685">Metadata</text><text x="490" y="708" fill="#91a4b6">Generation</text><text x="668" y="696">→</text><text x="720" y="685">git add</text><text x="870" y="696">→</text><text x="920" y="685">git commit</text><text x="1060" y="696">→</text><text x="1080" y="685">git push</text><text x="1080" y="708" fill="#91a4b6">optional</text></g>
+  <rect x="1160" y="250" width="330" height="270" rx="18" fill="#071525" stroke="#29445f"/>
+  <text x="1190" y="288" font-size="23" font-weight="750" fill="#42e695">Why GitPulse?</text>
+  <text x="1190" y="326" font-size="17" fill="#dce7ef">✓ Keeps repositories active</text><text x="1210" y="350" font-size="17" fill="#dce7ef">and visible.</text>
+  <text x="1190" y="390" font-size="17" fill="#dce7ef">✓ Great for personal projects,</text><text x="1210" y="414" font-size="17" fill="#dce7ef">learning, and automation.</text>
+  <text x="1190" y="454" font-size="17" fill="#dce7ef">✓ No external service required.</text><text x="1210" y="478" font-size="17" fill="#dce7ef">100% local.</text>
+  <rect x="1160" y="540" width="330" height="192" rx="18" fill="#071525" stroke="#29445f"/>
+  <text x="1190" y="576" font-size="20" font-weight="700" fill="#4cc9ff">Quick Install</text>
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="14" fill="#dce7ef"><text x="1190" y="610">go install github.com/dinalegw/GitPulse@latest</text><text x="1190" y="645">git clone github.com/dinalegw/GitPulse</text><text x="1190" y="669">cd GitPulse</text><text x="1190" y="693">go build -o gitpulse</text></g>
+  <rect x="42" y="760" width="1448" height="168" rx="20" fill="#071525" stroke="#29445f"/>
+  <text x="65" y="798" font-size="20" font-weight="700" fill="#4cc9ff">Powerful Commands</text>
+  <g font-size="15">
+    <g><rect x="62" y="820" width="168" height="82" rx="13" fill="#091a29" stroke="#203b53"/><text x="82" y="848" font-weight="700" fill="#42e695">run</text><text x="82" y="872" fill="#b6c4d0">Run a cycle now.</text></g>
+    <g><rect x="242" y="820" width="168" height="82" rx="13" fill="#091a29" stroke="#203b53"/><text x="262" y="848" font-weight="700" fill="#a77bff">schedule</text><text x="262" y="872" fill="#b6c4d0">Daily automation.</text></g>
+    <g><rect x="422" y="820" width="168" height="82" rx="13" fill="#091a29" stroke="#203b53"/><text x="442" y="848" font-weight="700" fill="#4cc9ff">status</text><text x="442" y="872" fill="#b6c4d0">See repo state.</text></g>
+    <g><rect x="602" y="820" width="168" height="82" rx="13" fill="#091a29" stroke="#203b53"/><text x="622" y="848" font-weight="700" fill="#ffb14e">validate</text><text x="622" y="872" fill="#b6c4d0">Validate safety.</text></g>
+    <g><rect x="782" y="820" width="168" height="82" rx="13" fill="#091a29" stroke="#203b53"/><text x="802" y="848" font-weight="700" fill="#ff6f91">doctor</text><text x="802" y="872" fill="#b6c4d0">Diagnose issues.</text></g>
+    <g><rect x="962" y="820" width="168" height="82" rx="13" fill="#091a29" stroke="#203b53"/><text x="982" y="848" font-weight="700" fill="#4cc9ff">logs</text><text x="982" y="872" fill="#b6c4d0">Inspect history.</text></g>
+    <g><rect x="1142" y="820" width="168" height="82" rx="13" fill="#091a29" stroke="#203b53"/><text x="1162" y="848" font-weight="700" fill="#a9b7c5">config</text><text x="1162" y="872" fill="#b6c4d0">Manage settings.</text></g>
+    <g><rect x="1322" y="820" width="144" height="82" rx="13" fill="#091a29" stroke="#203b53"/><text x="1342" y="848" font-weight="700" fill="#a77bff">version</text><text x="1342" y="872" fill="#b6c4d0">Build info.</text></g>
+  </g>
+  <text x="65" y="978" font-size="18" fill="#9eb0c0">Built with <tspan fill="#42e695">Go</tspan>. Designed for developers. Made to keep your codebase alive.  |  GitPulse — Automate. Commit. Push. Repeat.</text>
+</g>
+</svg>
