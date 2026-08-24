@@ -53,21 +53,75 @@ Developed by **BLACKSAUCE**
 
 ## Installation
 
-### From source
+### Recommended: bootstrap installer
 
-Requirements: Go 1.26 or newer and `git` on your `PATH`.
+GitPulse is designed so a new machine does not need a manually assembled Go
+environment. The bootstrap installer checks the host, installs missing
+prerequisites where supported, provisions a compatible Go toolchain when
+needed, downloads the dependencies declared by the project, builds GitPulse,
+installs it, and runs `gitpulse doctor` as a post-install health gate.
+
+**Linux / macOS:**
 
 ```sh
-git clone https://github.com/gitpulse/gitpulse.git
-cd gitpulse
-./scripts/build.sh
+git clone https://github.com/dinalegw/GitPulse.git
+cd GitPulse
+chmod +x scripts/bootstrap.sh
+./scripts/bootstrap.sh
 ```
 
-The binary is written to `bin/gitpulse`. Install it to your `PATH`:
+**Windows PowerShell:**
+
+```powershell
+git clone https://github.com/dinalegw/GitPulse.git
+cd GitPulse
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\bootstrap.ps1
+```
+
+The default bootstrap path:
+
+- requires Git for repository operations and installs it when the platform
+  package manager supports automatic installation;
+- uses Go 1.26.3 or newer;
+- installs a private Go 1.26.3 toolchain when the system Go is missing or too
+  old;
+- downloads the exact dependency versions declared by `go.mod`/`go.sum`;
+- builds a native GitPulse binary for the current machine;
+- installs it under `~/.local/bin` by default;
+- verifies the installation with `gitpulse version` and `gitpulse doctor`.
+
+For an explicit dependency upgrade during bootstrap:
 
 ```sh
+./scripts/bootstrap.sh --upgrade-deps
+```
+
+or on Windows:
+
+```powershell
+.\scripts\bootstrap.ps1 -UpgradeDeps
+```
+
+Dependency upgrades are deliberately opt-in. A reliable installer should
+make the machine compatible first and reproducible second rather than blindly
+upgrading unrelated packages.
+
+See [docs/installation.md](docs/installation.md) for the complete
+cross-platform installation and troubleshooting guide.
+
+### From an existing Go checkout
+
+If Go 1.26.3+ and Git are already installed:
+
+```sh
+go mod download
+./scripts/build.sh
 ./scripts/install.sh
 ```
+
+On Windows, use the native PowerShell bootstrap rather than executing the
+Unix `build.sh` script directly from PowerShell.
 
 ### Verify
 
@@ -221,6 +275,7 @@ default, and its meaning.
 
 ## Documentation
 
+- [Installation](docs/installation.md)
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/configuration.md)
 - [CLI reference](docs/cli.md)
