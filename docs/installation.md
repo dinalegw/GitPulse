@@ -2,7 +2,7 @@
 
 GitPulse is a Go CLI, but users should not have to manually assemble a development environment just to install it.
 
-The supported installation path is the **bootstrap installer**. It checks the host, installs missing prerequisites where the operating system allows it, provisions a compatible Go toolchain when building from source, downloads the dependencies declared by `go.mod`, builds GitPulse, installs it, and runs `gitpulse doctor` as a post-install gate.
+The supported installation path is the **bootstrap installer**. It checks the host, installs missing prerequisites where the operating system allows it, reuses compatible tools that are already installed, provisions a compatible Go toolchain only when needed, downloads the dependencies declared by `go.mod`, builds GitPulse, installs it, and runs `gitpulse doctor` as a post-install gate.
 
 ## Linux and macOS
 
@@ -18,13 +18,17 @@ chmod +x scripts/bootstrap.sh
 The installer:
 
 1. verifies Git;
-2. installs Git with a supported package manager when Git is missing;
+2. installs Git with a supported package manager only when Git is missing;
 3. verifies Go 1.26.3 or newer;
-4. installs a private Go 1.26.3 toolchain under `~/.gitpulse/toolchains` when the system Go is missing or too old;
-5. downloads the exact module versions recorded by `go.mod`/`go.sum`;
-6. builds GitPulse for the current platform;
-7. installs the binary to `~/.local/bin`;
-8. runs `gitpulse version` and `gitpulse doctor`.
+4. reuses a compatible system Go without downgrading it;
+5. reuses a previously downloaded private Go 1.26.3 toolchain when one already exists;
+6. installs a private Go 1.26.3 toolchain under `~/.gitpulse/toolchains` when the system Go is missing or too old and no private toolchain exists;
+7. downloads the exact module versions recorded by `go.mod`/`go.sum`;
+8. builds GitPulse for the current platform;
+9. installs the binary to `~/.local/bin`;
+10. runs `gitpulse version` and `gitpulse doctor`.
+
+The default path is intentionally **idempotent and non-destructive**. Running it again should reuse compatible software instead of blindly replacing or upgrading it.
 
 To explicitly upgrade module dependencies during bootstrap:
 
@@ -55,11 +59,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The Windows bootstrap:
 
-- installs Git with `winget` or Chocolatey when available;
+- installs Git with `winget` or Chocolatey only when Git is missing;
+- reuses compatible system Go without downgrading it;
+- reuses a previously downloaded private Go toolchain when available;
 - installs a private Go 1.26.3 toolchain when the system Go is missing/too old;
+- supports Windows AMD64 and ARM64;
 - downloads the declared Go modules;
 - builds a native `gitpulse.exe` without requiring Git Bash;
-- adds the install directory to the user's PATH;
+- adds the install directory to the user's PATH without discarding existing PATH entries;
 - runs the version and doctor checks.
 
 For dependency upgrades:
@@ -96,7 +103,8 @@ to verify the runtime environment and configured repository.
 
 "Update everything" sounds safe but is not a reliable installation strategy. The bootstrap process makes the environment compatible first and reproducible second:
 
-- the required Go version is enforced;
+- a compatible Go installation is reused;
+- the required Go minimum is enforced without downgrading newer compatible versions;
 - the dependency versions in `go.mod`/`go.sum` are used by default;
 - dependency upgrades are available through an explicit opt-in flag;
 - destructive or unrelated system upgrades are never performed automatically.
