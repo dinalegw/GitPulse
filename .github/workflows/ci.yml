@@ -5,9 +5,6 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
   test:
     name: Test (${{ matrix.os }})
@@ -19,30 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Migrate canonical Go module imports
-        if: runner.os == 'Linux' && github.event_name == 'pull_request' && github.head_ref == 'hardening/canonical-module-path'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git grep -Il 'github.com/gitpulse/gitpulse' -- . ':!.gitpulse/activity.log' | while IFS= read -r file; do
-            sed -i 's#github\.com/gitpulse/gitpulse#github.com/dinalegw/GitPulse#g' "$file"
-          done
-          gofmt -w $(git ls-files '*.go')
-          go mod tidy
-          if git diff --quiet; then
-            echo 'No module migration changes required.'
-          else
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git checkout -- .github/workflows
-            git add -A
-            git commit -m 'chore: migrate Go module imports'
-            git push origin "HEAD:${{ github.head_ref }}"
-          fi
 
       - name: Set up Go
         uses: actions/setup-go@v5
