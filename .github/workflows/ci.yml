@@ -69,3 +69,15 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+      - name: Verify external go install
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY_DIR="$(mktemp -d)"
+          VERIFY_BIN="$VERIFY_DIR/bin"
+          mkdir -p "$VERIFY_BIN"
+          cd "$VERIFY_DIR"
+          GOBIN="$VERIFY_BIN" go install "github.com/dinalegw/GitPulse@${{ github.event.pull_request.head.sha || github.sha }}"
+          "$VERIFY_BIN/gitpulse" version
