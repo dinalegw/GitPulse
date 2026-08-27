@@ -1,0 +1,225 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-bg-primary: #0a0e14;
+  --color-bg-card: #111827;
+  --color-border-subtle: #1f2937;
+  --color-accent-primary: #22c55e;
+  --color-accent-secondary: #a855f7;
+  --color-text-primary: #f9fafb;
+  --color-text-muted: #9ca3af;
+  --color-terminal-red: #ef4444;
+  --color-terminal-yellow: #fbbf24;
+  --color-terminal-green: #22c55e;
+
+  --font-sans: 'Geist Sans', 'Inter', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
+
+  --radius-card: 0.75rem;
+  --radius-terminal: 0.5rem;
+
+  --shadow-card-hover: 0 10px 40px -10px rgba(34, 197, 94, 0.15);
+  --shadow-terminal-glow: 0 0 30px -5px rgba(34, 197, 94, 0.1);
+}
+
+@layer base {
+  :root {
+    --background: var(--color-bg-primary);
+    --foreground: var(--color-text-primary);
+  }
+
+  * {
+    @apply border-border-subtle;
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Selection colors */
+  ::selection {
+    @apply bg-accent-primary/30 text-text-primary;
+  }
+
+  /* Focus visible for accessibility */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-accent-primary ring-offset-2 ring-offset-bg-primary;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-primary;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border-subtle rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-muted/50;
+  }
+}
+
+@layer components {
+  /* Terminal window chrome - reused on landing + playground */
+  .terminal-window {
+    @apply bg-bg-card border border-border-subtle rounded-terminal overflow-hidden shadow-terminal-glow;
+  }
+
+  .terminal-titlebar {
+    @apply flex items-center gap-2 px-3 py-2 bg-bg-primary border-b border-border-subtle;
+  }
+
+  .terminal-dots {
+    @apply flex gap-1.5;
+  }
+
+  .terminal-dot {
+    @apply w-3 h-3 rounded-full;
+  }
+
+  .terminal-dot-red { @apply bg-terminal-red; }
+  .terminal-dot-yellow { @apply bg-terminal-yellow; }
+  .terminal-dot-green { @apply bg-terminal-green; }
+
+  .terminal-title {
+    @apply flex-1 text-center text-sm font-mono text-text-muted;
+  }
+
+  .terminal-body {
+    @apply p-4 font-mono text-sm leading-relaxed min-h-[200px];
+  }
+
+  /* Card component */
+  .card {
+    @apply bg-bg-card border border-border-subtle rounded-card p-6 transition-all duration-300;
+  }
+
+  .card-hover {
+    @apply hover:border-accent-primary/50 hover:shadow-card-hover;
+  }
+
+  /* Button variants */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-accent-primary text-bg-primary font-medium rounded-lg transition-all duration-200 hover:bg-accent-primary/90 hover:shadow-[0_0_20px_rgba(34,197,94,0.4)] focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 focus:ring-offset-bg-primary disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-bg-card border border-border-subtle text-text-primary font-medium rounded-lg transition-all duration-200 hover:border-accent-primary/50 hover:bg-bg-primary focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 focus:ring-offset-bg-primary disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-text-muted font-medium rounded-lg transition-all duration-200 hover:text-text-primary hover:bg-bg-card focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 focus:ring-offset-bg-primary;
+  }
+
+  /* Input styling */
+  .input-field {
+    @apply w-full px-4 py-2.5 bg-bg-primary border border-border-subtle rounded-lg text-text-primary placeholder-text-muted/50 transition-all duration-200 focus:outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20;
+  }
+
+  /* Code/pre styling */
+  .code-block {
+    @apply bg-bg-primary border border-border-subtle rounded-lg p-4 font-mono text-sm overflow-x-auto;
+  }
+
+  .code-inline {
+    @apply bg-bg-primary border border-border-subtle rounded px-1.5 py-0.5 font-mono text-sm text-accent-primary;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full;
+  }
+
+  .badge-success {
+    @apply bg-accent-primary/10 text-accent-primary border border-accent-primary/20;
+  }
+
+  .badge-warning {
+    @apply bg-accent-secondary/10 text-accent-secondary border border-accent-secondary/20;
+  }
+
+  .badge-info {
+    @apply bg-blue-500/10 text-blue-400 border border-blue-500/20;
+  }
+
+  /* Section container */
+  .section-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  /* Heading styles */
+  .heading-1 {
+    @apply text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-text-primary;
+  }
+
+  .heading-2 {
+    @apply text-3xl sm:text-4xl font-bold tracking-tight text-text-primary;
+  }
+
+  .heading-3 {
+    @apply text-2xl sm:text-3xl font-semibold tracking-tight text-text-primary;
+  }
+
+  .heading-4 {
+    @apply text-xl font-semibold tracking-tight text-text-primary;
+  }
+
+  /* Text styles */
+  .text-lead {
+    @apply text-lg sm:text-xl text-text-muted leading-relaxed;
+  }
+
+  .text-body {
+    @apply text-base text-text-muted leading-relaxed;
+  }
+
+  .text-small {
+    @apply text-sm text-text-muted;
+  }
+
+  /* Link */
+  .link {
+    @apply text-accent-primary hover:text-accent-primary/80 underline-offset-2 hover:underline transition-colors;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .animate-in {
+    animation: fadeIn 0.3s ease-out forwards;
+  }
+
+  /* Terminal cursor blink */
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  .terminal-cursor {
+    @apply inline-block w-2 h-5 align-bottom animate-[blink_1s_ease-in-out_infinite] bg-accent-primary;
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-gradient-to-r from-accent-primary to-accent-secondary bg-clip-text text-transparent;
+  }
+
+  /* Green gradient for "Pulse" */
+  .gradient-pulse {
+    @apply bg-gradient-to-r from-accent-primary to-emerald-400 bg-clip-text text-transparent;
+  }
+}
