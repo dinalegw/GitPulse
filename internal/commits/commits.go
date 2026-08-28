@@ -141,9 +141,6 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 			return res, err
 		}
 
-		// Re-check immediately before each mutation. This closes the obvious
-		// time-of-check/time-of-use window between an earlier validation and the
-		// actual metadata write/add/commit sequence.
 		if !c.dryRun {
 			if err := validation.ValidateRepositoryForMutation(ctx, c.client, c.cfg); err != nil {
 				res.Duration = time.Since(start)
@@ -235,21 +232,36 @@ func (c *Cycle) push(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if !hasRemote {
-		c.log.Warn("skipping push: remote %q is not configured in the repository; add it with 'git remote add %s <url>'", c.cfg.PushRemote, c.cfg.PushRemote)
-		return false, nil
+		return false, fmt.Errorf("cannot push: remote %q is not configured; run 'gitpulse init' in your target repository or configure push_remote", c.cfg.PushRemote)
 	}
 
-	if c.log != nil {
-		c.log.WithFields(map[string]any{
-			logger.FieldRemote: c.cfg.PushRemote,
-			logger.FieldBranch: c.cfg.RemoteBranch,
-		}).Info("pushing commits")
-	}
-	if err := c.client.PushDetailed(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
+	name, email, err := c.client.UserIdentity(ctx)
+	if err != nil {
 		return false, err
 	}
-	if c.log != nil {
-		c.log.WithField(logger.FieldPushed, true).Info("push completed")
+	if strings.TrimSpace(email) == "" {
+		return false, fmt.Errorf("cannot push GitPulse commits: Git user.email is not configured; set it with 'git config --global user.email <your-github-email>' (use a GitHub noreply address if preferred). GitHub can only attribute commits when the author email is associated with the account")
 	}
+	if strings.TrimSpace(name) == "" {
+		return false, fmt.Errorf("cannot create GitPulse commits: Git user.name is not configured; set it with 'git config --global user.name <your-name>'")
+	}
+
+	url, err := c.client.RemoteURL(ctx, c.cfg.PushRemote)
+	if err != nil {
+		return false, err
+	}
+	c.log.WithFields(map[string]any{
+		logger.FieldRemote: c.cfg.PushRemote,
+		logger.FieldBranch: c.cfg.RemoteBranch,
+	}).Info("checking push access")
+
+	if err := c.client.PushDryRun(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
+		return false, fmt.Errorf("GitPulse cannot push to %s/%s (%s): %w. If this is the upstream GitPulse repository, fork it or configure push_remote to a repository you own", c.cfg.PushRemote, c.cfg.RemoteBranch, url, err)
+	}
+
+	if err := c.client.PushHead(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
+		return false, fmt.Errorf("GitPulse created the commit as %s <%s>, but the push failed for %s/%s: %w", name, email, c.cfg.PushRemote, c.cfg.RemoteBranch, err)
+	}
+	c.log.WithField(logger.FieldPushed, true).Info("push completed")
 	return true, nil
 }
