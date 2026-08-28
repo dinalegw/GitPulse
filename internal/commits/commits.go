@@ -124,6 +124,15 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 
 	res := Result{Expected: n, DryRun: c.dryRun}
 
+	// Do not create local commits that we already know cannot be pushed. This
+	// is especially important for users who cloned a read-only upstream repo.
+	// A failed preflight leaves the working tree and commit history unchanged.
+	if !c.dryRun && c.cfg.PushRemote != "" && c.cfg.RemoteBranch != "" {
+		if err := c.preflightPush(ctx); err != nil {
+			return res, err
+		}
+	}
+
 	startSeq, err := c.meta.Count()
 	if err != nil {
 		return Result{}, err
@@ -221,34 +230,29 @@ func (c *Cycle) commitOnce(ctx context.Context, when time.Time, seq int) (bool, 
 	return created, nil
 }
 
-func (c *Cycle) push(ctx context.Context) (bool, error) {
-	if c.cfg.PushRemote == "" || c.cfg.RemoteBranch == "" {
-		c.log.Warn("skipping push: push_remote and remote_branch are not configured")
-		return false, nil
-	}
-
+func (c *Cycle) preflightPush(ctx context.Context) error {
 	hasRemote, err := c.client.HasRemote(ctx, c.cfg.PushRemote)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if !hasRemote {
-		return false, fmt.Errorf("cannot push: remote %q is not configured; run 'gitpulse init' in your target repository or configure push_remote", c.cfg.PushRemote)
+		return fmt.Errorf("cannot push: remote %q is not configured; run 'gitpulse init' in your target repository or configure push_remote", c.cfg.PushRemote)
 	}
 
 	name, email, err := c.client.UserIdentity(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if strings.TrimSpace(email) == "" {
-		return false, fmt.Errorf("cannot push GitPulse commits: Git user.email is not configured; set it with 'git config --global user.email <your-github-email>' (use a GitHub noreply address if preferred). GitHub can only attribute commits when the author email is associated with the account")
+		return fmt.Errorf("cannot run GitPulse: Git user.email is not configured; set it with 'git config --global user.email <your-github-email>' (use a GitHub noreply address if preferred). GitHub can only attribute commits when the author email is associated with the account")
 	}
 	if strings.TrimSpace(name) == "" {
-		return false, fmt.Errorf("cannot create GitPulse commits: Git user.name is not configured; set it with 'git config --global user.name <your-name>'")
+		return fmt.Errorf("cannot run GitPulse: Git user.name is not configured; set it with 'git config --global user.name <your-name>'")
 	}
 
 	url, err := c.client.RemoteURL(ctx, c.cfg.PushRemote)
 	if err != nil {
-		return false, err
+		return err
 	}
 	c.log.WithFields(map[string]any{
 		logger.FieldRemote: c.cfg.PushRemote,
@@ -256,9 +260,22 @@ func (c *Cycle) push(ctx context.Context) (bool, error) {
 	}).Info("checking push access")
 
 	if err := c.client.PushDryRun(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
-		return false, fmt.Errorf("GitPulse cannot push to %s/%s (%s): %w. If this is the upstream GitPulse repository, fork it or configure push_remote to a repository you own", c.cfg.PushRemote, c.cfg.RemoteBranch, url, err)
+		return fmt.Errorf("GitPulse cannot push to %s/%s (%s): %w. If this is the upstream GitPulse repository, fork it or configure push_remote to a repository you own", c.cfg.PushRemote, c.cfg.RemoteBranch, url, err)
+	}
+	return nil
+}
+
+func (c *Cycle) push(ctx context.Context) (bool, error) {
+	if c.cfg.PushRemote == "" || c.cfg.RemoteBranch == "" {
+		c.log.Warn("skipping push: push_remote and remote_branch are not configured")
+		return false, nil
 	}
 
+	if err := c.preflightPush(ctx); err != nil {
+		return false, err
+	}
+
+	name, email, _ := c.client.UserIdentity(ctx)
 	if err := c.client.PushHead(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
 		return false, fmt.Errorf("GitPulse created the commit as %s <%s>, but the push failed for %s/%s: %w", name, email, c.cfg.PushRemote, c.cfg.RemoteBranch, err)
 	}
