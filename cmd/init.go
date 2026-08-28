@@ -28,6 +28,10 @@ func newInitCmd() *cobra.Command {
 If no repository is given with --repo, GitPulse checks whether the current
 directory is a git repository and configures it automatically.
 
+The target branch is inferred from the current branch when --branch is not
+provided. If that branch tracks a remote branch, the upstream branch is used.
+The command never assumes that every repository uses main.
+
 The command never touches an existing configuration file. Use
 'gitpulse config set <key> <value>' to change settings afterwards.`,
 		Example: `  gitpulse init
@@ -41,7 +45,7 @@ The command never touches an existing configuration file. Use
 	}
 
 	cmd.Flags().StringVar(&flags.repo, "repo", "", "repository path to commit to (default: current directory if it is a git repository)")
-	cmd.Flags().StringVar(&flags.branch, "branch", "", "remote branch to push to (default: main)")
+	cmd.Flags().StringVar(&flags.branch, "branch", "", "remote branch to push to (default: current branch, or its upstream branch when available)")
 	cmd.Flags().IntVar(&flags.commits, "commits", 0, "number of commits per day (default: 4)")
 	cmd.Flags().BoolVar(&flags.enabled, "enabled", false, "mark GitPulse as enabled (default: false)")
 	cmd.Flags().BoolVar(&flags.dryRun, "dry-run", false, "enable dry-run mode (default: false)")
@@ -78,6 +82,13 @@ func runInit(cmd *cobra.Command, flags *initFlags) error {
 		repo, err := client.Detect(cmd.Context())
 		if err == nil && repo {
 			cfg.RepositoryPath = cwd
+			if flags.branch == "" {
+				if upstream, upstreamErr := client.UpstreamBranch(cmd.Context()); upstreamErr == nil && upstream != "" {
+					cfg.RemoteBranch = upstream
+				} else if current, branchErr := client.CurrentBranch(cmd.Context()); branchErr == nil && current != "" {
+					cfg.RemoteBranch = current
+				}
+			}
 		}
 	}
 
@@ -105,6 +116,8 @@ func runInit(cmd *cobra.Command, flags *initFlags) error {
 	} else {
 		fmt.Fprintf(cmd.OutOrStdout(), "  Repository:        %s\n", cfg.RepositoryPath)
 	}
+	fmt.Fprintf(cmd.OutOrStdout(), "  Push remote:       %s\n", cfg.PushRemote)
+	fmt.Fprintf(cmd.OutOrStdout(), "  Remote branch:     %s\n", cfg.RemoteBranch)
 	fmt.Fprintf(cmd.OutOrStdout(), "\nNext steps:\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "  gitpulse validate   # check the configuration\n")
 	fmt.Fprintf(cmd.OutOrStdout(), "  gitpulse status     # inspect the repository and schedule\n")
