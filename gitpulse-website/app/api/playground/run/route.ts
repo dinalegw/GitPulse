@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSandboxSession, executeCommand, cleanupSession, validateCommand } from '@/lib/sandbox';
+import { createSandboxSession, executeCommand, cleanupSession, validateCommand, startInteractiveProcess } from '@/lib/sandbox';
 import { checkRateLimit, getRateLimitHeaders } from '@/lib/rate-limit';
 import { getClientIP } from '@/lib/utils';
 
@@ -96,41 +96,34 @@ async function streamSSE(
 
       try {
         // For interactive mode, we need to use the sandbox's PTY/terminal API
-        // E2B's @e2b/code-interpreter supports terminal sessions
-        const { sandbox } = session;
+        // E2B's @e2b/code-interpreter supports terminal sessions via process.start()
+        const { sandboxId } = session;
 
-        // Start a terminal session for interactive commands
-        // Note: This is a simplified version. Full implementation would use
-        // sandbox.process.start() with stdin/stdout/stderr streaming
-
-        // For now, execute the command and stream output
-        const result = await executeCommand(session.sandboxId, command, args);
-
-        // Send output in chunks to simulate streaming
-        if (result.stdout) {
-          const lines = result.stdout.split('\n');
-          for (const line of lines) {
-            send({ type: 'output', content: line + '\n' });
-            // Small delay to simulate real-time output
-            await new Promise((r) => setTimeout(r, 10));
+        // Start interactive process with streaming callbacks
+        await startInteractiveProcess(
+          sandboxId,
+          command,
+          args,
+          // onStdout
+          (data: string) => {
+            send({ type: 'output', content: data });
+          },
+          // onStderr
+          (data: string) => {
+            send({ type: 'output', content: data });
+          },
+          // onExit
+          (exitCode: number) => {
+            send({ type: 'exit', code: exitCode });
+            closed = true;
+            controller.close();
+            // Cleanup session after completion
+            cleanupSession(sandboxId).catch(console.error);
           }
-        }
+        );
 
-        if (result.stderr) {
-          const lines = result.stderr.split('\n');
-          for (const line of lines) {
-            send({ type: 'output', content: line + '\n' });
-          }
-        }
-
-        send({ type: 'exit', code: result.exitCode });
-        closed = true;
-        controller.close();
       } catch (error) {
         sendError(error instanceof Error ? error.message : 'Execution failed');
-      } finally {
-        // Cleanup session after completion
-        await cleanupSession(session.sandboxId);
       }
     },
 

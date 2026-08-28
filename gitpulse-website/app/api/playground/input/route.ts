@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendStdin, getSession } from '@/lib/sandbox';
+import { sendStdin, getSession, killProcess, resizePTY } from '@/lib/sandbox';
 import { getClientIP } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -9,11 +9,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { sessionId, input } = body;
+    const { sessionId, input, cols, rows } = body;
 
-    if (!sessionId || input === undefined) {
+    if (!sessionId) {
       return NextResponse.json(
-        { error: 'Missing required fields: sessionId, input' },
+        { error: 'Missing required field: sessionId' },
         { status: 400 }
       );
     }
@@ -27,8 +27,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Handle PTY resize
+    if (cols !== undefined && rows !== undefined) {
+      await resizePTY(sessionId, cols, rows);
+      return NextResponse.json({ success: true });
+    }
+
+    // Handle Ctrl+C (SIGINT) to stop the process
+    if (input === '\x03' || input === 'SIGINT') {
+      await killProcess(sessionId);
+      return NextResponse.json({ success: true });
+    }
+
     // Send stdin to sandbox
-    await sendStdin(sessionId, input);
+    if (input !== undefined) {
+      await sendStdin(sessionId, input);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

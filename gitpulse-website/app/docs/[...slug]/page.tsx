@@ -5,7 +5,7 @@ import { DocsPage } from '@/components/DocsPage';
 
 export async function generateStaticParams() {
   return ALL_COMMANDS.map((cmd) => ({
-    slug: cmd.name.replace('run-schedule', 'run/schedule').replace('quick-wizard', 'quick-wizard'),
+    slug: cmd.name.replace('run-schedule', 'run/schedule').split('/'),
   }));
 }
 

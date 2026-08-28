@@ -1,13 +1,35 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Terminal, useTerminal } from '@/components/Terminal';
+export const dynamic = 'force-dynamic';
+
+import dynamicImport from 'next/dynamic';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useTerminal } from '@/components/Terminal';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
-import { PLAYGROUND_COMMANDS, CommandMeta } from '@/lib/commands';
+import { PLAYGROUND_COMMANDS } from '@/lib/commands';
 import { Loader2, Terminal as TerminalIcon, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+// Dynamic import Terminal to avoid SSR issues with xterm.js
+const Terminal = dynamicImport(() => import('@/components/Terminal').then(mod => mod.Terminal), {
+  ssr: false,
+  loading: () => (
+    <div className="terminal-window font-mono animate-pulse" style={{ minHeight: '300px' }}>
+      <div className="terminal-titlebar">
+        <div className="terminal-dots">
+          <span className="terminal-dot terminal-dot-red" />
+          <span className="terminal-dot terminal-dot-yellow" />
+          <span className="terminal-dot terminal-dot-green" />
+        </div>
+        <div className="terminal-title">gitpulse</div>
+      </div>
+      <div className="terminal-body h-[260px]" />
+    </div>
+  ),
+});
 
 interface PlaygroundCommandOption {
   value: string;
@@ -25,7 +47,8 @@ const COMMAND_OPTIONS: PlaygroundCommandOption[] = PLAYGROUND_COMMANDS.map((cmd)
   defaultArgs: cmd.playground.defaultArgs || [],
 }));
 
-export default function PlaygroundPage() {
+function PlaygroundContent() {
+  const searchParams = useSearchParams();
   const [selectedCommand, setSelectedCommand] = useState<string>('quick-wizard');
   const [args, setArgs] = useState<string>('');
   const [status, setStatus] = useState<'idle' | 'connecting' | 'running' | 'completed' | 'error'>('idle');
@@ -37,7 +60,35 @@ export default function PlaygroundPage() {
 
   const selectedCmd = COMMAND_OPTIONS.find((c) => c.value === selectedCommand);
 
-  // Update args when command changes
+  // Initialize from query params on mount
+  useEffect(() => {
+    const cmdParam = searchParams.get('cmd');
+    const argsParam = searchParams.get('args');
+
+    if (cmdParam) {
+      const validCmd = COMMAND_OPTIONS.find((c) => c.value === cmdParam);
+      if (validCmd) {
+        setSelectedCommand(cmdParam);
+        if (argsParam) {
+          setArgs(argsParam);
+        } else {
+          setArgs(validCmd.defaultArgs.join(' '));
+        }
+        setIsInteractive(validCmd.requiresInteractive || false);
+        return;
+      }
+    }
+
+    // Fallback to default (quick-wizard)
+    setSelectedCommand('quick-wizard');
+    const defaultCmd = COMMAND_OPTIONS.find((c) => c.value === 'quick-wizard');
+    if (defaultCmd) {
+      setArgs(defaultCmd.defaultArgs.join(' '));
+      setIsInteractive(defaultCmd.requiresInteractive || false);
+    }
+  }, [searchParams]);
+
+  // Update args when command changes (manual selection)
   useEffect(() => {
     if (selectedCmd) {
       setArgs(selectedCmd.defaultArgs.join(' '));
@@ -153,6 +204,15 @@ export default function PlaygroundPage() {
     handleSendInput(data);
   }, [handleSendInput]);
 
+  const handleTerminalResize = useCallback((cols: number, rows: number) => {
+    if (!sessionId || !isInteractive) return;
+    fetch('/api/playground/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, cols, rows }),
+    }).catch(console.error);
+  }, [sessionId, isInteractive]);
+
   const handleStop = async () => {
     if (sessionId) {
       await fetch('/api/playground/input', {
@@ -211,7 +271,7 @@ export default function PlaygroundPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                  <Select value={selectedCommand} onValueChange={setSelectedCommand}>
+                  <Select value={selectedCommand} onChange={(e) => setSelectedCommand(e.target.value)}>
                     <SelectTrigger className="w-full sm:w-[300px]">
                       <SelectValue placeholder="Select a command..." />
                     </SelectTrigger>
@@ -337,6 +397,7 @@ export default function PlaygroundPage() {
                   readOnly={!isInteractive}
                   onData={handleTerminalData}
                   onReady={terminal.setTerminal}
+                  onResize={handleTerminalResize}
                   className="h-full"
                 />
               </CardContent>
@@ -366,7 +427,60 @@ export default function PlaygroundPage() {
             Powered by <a href="https://e2b.dev" target="_blank" rel="noopener noreferrer" className="link">E2B</a> sandboxes ·
             <a href="https://github.com/dinalegw/GitPulse" target="_blank" rel="noopener noreferrer" className="link">GitPulse source</a>
           </p>
-        </div      </footer>
+        </div>
+      </footer>
     </div>
+  );
+}
+
+export default function PlaygroundPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex flex-col">
+        <header className="py-12 lg:py-16 border-b border-border-subtle">
+          <div className="section-container">
+            <div className="max-w-6xl mx-auto">
+              <nav className="flex items-center gap-2 text-sm text-text-muted mb-6" aria-label="Breadcrumb">
+                <a href="/" className="hover:text-text-primary transition-colors">Home</a>
+                <TerminalIcon className="h-4 w-4" />
+                <span className="font-mono text-text-primary">Playground</span>
+              </nav>
+              <h1 className="heading-1 font-mono mb-2">
+                <span className="gradient-pulse">Playground</span>
+              </h1>
+            </div>
+          </div>
+        </header>
+        <main className="flex-1 py-8 lg:py-12">
+          <div className="section-container">
+            <div className="max-w-6xl mx-auto">
+              <Card className="h-[500px] lg:h-[600px] flex flex-col overflow-hidden">
+                <CardHeader className="flex-shrink-0">
+                  <CardTitle className="flex items-center gap-2">
+                    <TerminalIcon className="h-5 w-5 text-accent-primary" />
+                    Live Terminal
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 p-0 min-h-0">
+                  <div className="terminal-window font-mono animate-pulse" style={{ height: '100%', minHeight: '460px' }}>
+                    <div className="terminal-titlebar">
+                      <div className="terminal-dots">
+                        <span className="terminal-dot terminal-dot-red" />
+                        <span className="terminal-dot terminal-dot-yellow" />
+                        <span className="terminal-dot terminal-dot-green" />
+                      </div>
+                      <div className="terminal-title">gitpulse</div>
+                    </div>
+                    <div className="terminal-body" style={{ height: 'calc(100% - 40px)' }} />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </main>
+      </div>
+    }>
+      <PlaygroundContent />
+    </Suspense>
   );
 }

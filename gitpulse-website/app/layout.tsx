@@ -1,18 +1,6 @@
 import type { Metadata, Viewport } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
-
-const geistSans = Geist({
-  subsets: ['latin'],
-  variable: '--font-sans',
-  display: 'swap',
-});
-
-const geistMono = Geist_Mono({
-  subsets: ['latin'],
-  variable: '--font-mono',
-  display: 'swap',
-});
+import 'xterm/css/xterm.css';
 
 export const metadata: Metadata = {
   title: {
@@ -34,7 +22,7 @@ export const metadata: Metadata = {
     description: 'Local-only CLI tool for automating scheduled Git commits. Transparent, user-controlled, no external services.',
     images: [
       {
-        url: '/og-image.png',
+        url: '/og-image.svg',
         width: 1200,
         height: 630,
         alt: 'GitPulse — Automate scheduled Git commits',
@@ -45,11 +33,11 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'GitPulse — Automate scheduled Git commits',
     description: 'Local-only CLI tool for automating scheduled Git commits. Transparent, user-controlled, no external services.',
-    images: ['/og-image.png'],
+    images: ['/og-image.svg'],
   },
   icons: {
-    icon: '/favicon.ico',
-    shortcut: '/favicon-16x16.png',
+    icon: '/favicon.svg',
+    shortcut: '/favicon.svg',
     apple: '/apple-touch-icon.png',
   },
   manifest: '/site.webmanifest',
@@ -68,11 +56,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      </head>
+    <html lang="en" className="antialiased">
       <body className="bg-bg-primary text-text-primary font-sans min-h-screen">
         {children}
       </body>

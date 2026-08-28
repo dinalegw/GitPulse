@@ -9,6 +9,7 @@ export interface SandboxSession {
   createdAt: number;
   command: string;
   args: string[];
+  ptyPid?: number; // E2B PTY process ID for interactive mode
 }
 
 const sessions = new Map<string, SandboxSession>();
@@ -38,11 +39,19 @@ export async function createSandboxSession(
   }
 
   // Create sandbox with pre-baked template (has git + gitpulse pre-installed)
-  const sandbox = await Sandbox.create({
-    apiKey: E2B_API_KEY,
-    template: E2B_TEMPLATE_ID || undefined,
-    timeoutMs: MAX_SESSION_SECONDS * 1000,
-  });
+  // In E2B v1.5.1, template is passed as first positional argument if provided
+  let sandbox: Sandbox;
+  if (E2B_TEMPLATE_ID) {
+    sandbox = await Sandbox.create(E2B_TEMPLATE_ID, {
+      apiKey: E2B_API_KEY,
+      timeoutMs: MAX_SESSION_SECONDS * 1000,
+    });
+  } else {
+    sandbox = await Sandbox.create({
+      apiKey: E2B_API_KEY,
+      timeoutMs: MAX_SESSION_SECONDS * 1000,
+    });
+  }
 
   // Set up the scratch repository and fake origin
   await setupScratchRepo(sandbox);
@@ -108,7 +117,7 @@ async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
 }
 
 /**
- * Execute a GitPulse command in the sandbox and return output
+ * Execute a GitPulse command in the sandbox and return output (non-interactive)
  */
 export async function executeCommand(
   sessionId: string,
@@ -140,7 +149,75 @@ export async function executeCommand(
 }
 
 /**
- * Send stdin to a running sandbox process (for interactive commands)
+ * Start an interactive process in the sandbox and return a handle for streaming I/O
+ * Uses E2B's PTY API (sandbox.pty.create) for true interactive terminal support
+ * The PTY is created as a raw terminal, then we send the command as input
+ */
+export async function startInteractiveProcess(
+  sessionId: string,
+  command: string,
+  args: string[],
+  onStdout: (data: string) => void,
+  onStderr: (data: string) => void,
+  onExit: (exitCode: number) => void
+): Promise<void> {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  const { sandbox } = session;
+
+  // Build the gitpulse command
+  const gpArgs = args.join(' ');
+  const fullCommand = `cd /home/user/scratch-repo && gitpulse ${command} ${gpArgs}\n`;
+
+  console.log(`[Sandbox] Starting interactive: ${fullCommand.trim()}`);
+
+  // Use E2B's PTY API for bidirectional interactive terminal
+  // Get initial terminal size from environment or default to 80x24
+  const cols = parseInt(process.env.TERMINAL_COLS || '80', 10);
+  const rows = parseInt(process.env.TERMINAL_ROWS || '24', 10);
+
+  // Create PTY - returns CommandHandle which we can wait on for exit
+  const ptyHandle = await sandbox.pty.create({
+    cols,
+    rows,
+    // onData callback receives Uint8Array - PTY combines stdout and stderr
+    onData: (data: Uint8Array) => {
+      const text = new TextDecoder().decode(data);
+      onStdout(text);
+    },
+    envs: {},
+    cwd: '/home/user/scratch-repo',
+    timeoutMs: MAX_SESSION_SECONDS * 1000,
+  });
+
+  session.ptyPid = ptyHandle.pid;
+
+  // Send the command to the PTY as input
+  const encoder = new TextEncoder();
+  await sandbox.pty.sendInput(ptyHandle.pid, encoder.encode(fullCommand));
+
+  // Wait for exit in background and call onExit callback
+  (async () => {
+    try {
+      const result = await ptyHandle.wait();
+      onExit(result.exitCode);
+    } catch (e) {
+      // If wait throws, try to get exitCode from handle
+      const exitCode = ptyHandle.exitCode ?? 1;
+      onExit(exitCode);
+    } finally {
+      session.ptyPid = undefined;
+    }
+  })();
+
+  // Note: The PTY is now running with the command. Call sendStdin() to write more input.
+}
+
+/**
+ * Send stdin to a running interactive process in the sandbox
  */
 export async function sendStdin(sessionId: string, input: string): Promise<void> {
   const session = sessions.get(sessionId);
@@ -148,10 +225,42 @@ export async function sendStdin(sessionId: string, input: string): Promise<void>
     throw new Error('Session not found');
   }
 
-  // Note: E2B's SDK doesn't directly support stdin to a running process
-  // For interactive mode, we'd need to use the terminal/pty API
-  // This is a placeholder for the full implementation
-  console.log(`[Sandbox] Stdin for ${sessionId}: ${input}`);
+  if (!session.ptyPid) {
+    throw new Error('No interactive process running');
+  }
+
+  // Write to the PTY stdin using E2B's sendInput
+  const encoder = new TextEncoder();
+  await session.sandbox.pty.sendInput(session.ptyPid, encoder.encode(input));
+}
+
+/**
+ * Resize the PTY (for terminal resize events)
+ */
+export async function resizePTY(sessionId: string, cols: number, rows: number): Promise<void> {
+  const session = sessions.get(sessionId);
+  if (!session || !session.ptyPid) {
+    return;
+  }
+
+  await session.sandbox.pty.resize(session.ptyPid, { cols, rows });
+}
+
+/**
+ * Kill the running interactive process
+ */
+export async function killProcess(sessionId: string): Promise<void> {
+  const session = sessions.get(sessionId);
+  if (!session || !session.ptyPid) {
+    return;
+  }
+
+  try {
+    await session.sandbox.pty.kill(session.ptyPid);
+  } catch (e) {
+    console.error(`[Sandbox] Error killing process:`, e);
+  }
+  session.ptyPid = undefined;
 }
 
 /**
@@ -167,6 +276,14 @@ export function getSession(sessionId: string): SandboxSession | undefined {
 export async function cleanupSession(sessionId: string): Promise<void> {
   const session = sessions.get(sessionId);
   if (session) {
+    // Kill any running PTY first
+    if (session.ptyPid) {
+      try {
+        await session.sandbox.pty.kill(session.ptyPid);
+      } catch (e) {
+        console.error(`[Sandbox] Error killing PTY:`, e);
+      }
+    }
     try {
       await session.sandbox.kill();
       console.log(`[Sandbox] Cleaned up session ${sessionId}`);
@@ -194,7 +311,7 @@ export function cleanupExpiredSessions(): void {
  */
 export function validateCommand(command: string, args: string[]): { valid: boolean; error?: string } {
   // Import dynamically to avoid circular deps
-  const { PLAYGROUND_COMMANDS } = require('./commands');
+  const { PLAYGROUND_COMMANDS, CONFIG_KEYS } = require('./commands');
 
   const cmdMeta = PLAYGROUND_COMMANDS.find((c: { name: string }) => c.name === command);
   if (!cmdMeta) {
@@ -224,7 +341,6 @@ export function validateCommand(command: string, args: string[]): { valid: boole
     const setIndex = args.indexOf('set');
     if (setIndex + 1 < args.length) {
       const key = args[setIndex + 1];
-      const { CONFIG_KEYS } = require('./commands');
       if (!CONFIG_KEYS.includes(key as any)) {
         return { valid: false, error: `Invalid config key: ${key}` };
       }

@@ -300,7 +300,12 @@ export function getCommand(name: string): CommandMeta | undefined {
 }
 
 // Playground-allowed commands (for dropdown)
-export const PLAYGROUND_COMMANDS = COMMANDS.filter((c) => c.playground.allowed);
+// Includes both real subcommands and special interactive/docs-only entries
+// (e.g. the quick-setup wizard) that are flagged playground.allowed.
+export const PLAYGROUND_COMMANDS = [
+  ...COMMANDS.filter((c) => c.playground.allowed),
+  ...DOCS_ONLY.filter((c) => c.playground.allowed),
+];
 
 // Config keys for validation (from internal/config/config.go)
 export const CONFIG_KEYS = [

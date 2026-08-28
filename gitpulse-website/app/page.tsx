@@ -1,6 +1,6 @@
 'use client';
 
-import { Terminal } from '@/components/Terminal';
+import dynamicImport from 'next/dynamic';
 import { CommandGrid } from '@/components/CommandGrid';
 import { CopyInstallCommand } from '@/components/CopyInstallCommand';
 import { ResponsibleUseCallout } from '@/components/ResponsibleUseCallout';
@@ -8,6 +8,24 @@ import { StepDiagram } from '@/components/StepDiagram';
 import { TrustBadges, PlatformIcons } from '@/components/TrustBadges';
 import { Github, ArrowRight, Check, Terminal as TerminalIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+// Dynamic import Terminal to avoid SSR issues with xterm.js
+const Terminal = dynamicImport(() => import('@/components/Terminal').then(mod => mod.Terminal), {
+  ssr: false,
+  loading: () => (
+    <div className="terminal-window font-mono animate-pulse" style={{ minHeight: '300px' }}>
+      <div className="terminal-titlebar">
+        <div className="terminal-dots">
+          <span className="terminal-dot terminal-dot-red" />
+          <span className="terminal-dot terminal-dot-yellow" />
+          <span className="terminal-dot terminal-dot-green" />
+        </div>
+        <div className="terminal-title">gitpulse</div>
+      </div>
+      <div className="terminal-body h-[260px]" />
+    </div>
+  ),
+});
 
 const SAMPLE_OUTPUT = `$ gitpulse run --dry-run --count 3
 GitPulse run (dry-run: true)
@@ -60,7 +78,7 @@ export default function HomePage() {
               <span className="flex items-center gap-1.5 badge badge-success">
                 <Check className="h-3 w-3" /> Safe by Default
               </span>
-              <span className="flex items-center gap-1.5 badge" style={{ borderColor: 'rgba(168, 85, 247, 0.3)' }} className="text-accent-secondary bg-accent-secondary/10">
+              <span className="flex items-center gap-1.5 badge text-accent-secondary bg-accent-secondary/10" style={{ borderColor: 'rgba(168, 85, 247, 0.3)' }}>
                 <Check className="h-3 w-3" /> Local & Private
               </span>
               <span className="flex items-center gap-1.5 badge badge-info">

@@ -1,0 +1,58 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#0a0e14"/>
+
+  <!-- Decorative elements -->
+  <circle cx="200" cy="100" r="200" fill="#22c55e" opacity="0.08"/>
+  <circle cx="1000" cy="530" r="250" fill="#a855f7" opacity="0.06"/>
+
+  <!-- Logo -->
+  <g transform="translate(100, 180)">
+    <circle cx="64" cy="64" r="56" stroke="#22c55e" stroke-width="6" fill="none"/>
+    <path d="M64 24v32l20 20" stroke="#22c55e" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="64" cy="64" r="24" stroke="#22c55e" stroke-width="4" fill="none" opacity="0.5"/>
+  </g>
+
+  <!-- Title -->
+  <text x="250" y="240" font-family="system-ui, sans-serif" font-size="56" font-weight="bold" fill="#f9fafb" letter-spacing="-2">
+    <tspan fill="#f9fafb">Git</tspan><tspan fill="#22c55e">Pulse</tspan>
+  </text>
+
+  <!-- Subtitle -->
+  <text x="250" y="310" font-family="system-ui, sans-serif" font-size="28" fill="#9ca3af">
+    Automate scheduled Git commits — 100% local, no external services
+  </text>
+
+  <!-- Badges -->
+  <g transform="translate(250, 360)">
+    <rect x="0" y="0" width="200" height="40" rx="8" fill="#22c55e" opacity="0.15" stroke="#22c55e" stroke-width="1"/>
+    <text x="100" y="26" font-family="system-ui, sans-serif" font-size="16" font-weight="600" fill="#22c55e" text-anchor="middle">Safe by Default</text>
+
+    <rect x="220" y="0" width="200" height="40" rx="8" fill="#a855f7" opacity="0.15" stroke="#a855f7" stroke-width="1"/>
+    <text x="320" y="26" font-family="system-ui, sans-serif" font-size="16" font-weight="600" fill="#a855f7" text-anchor="middle">Local & Private</text>
+
+    <rect x="440" y="0" width="220" height="40" rx="8" fill="#3b82f6" opacity="0.15" stroke="#3b82f6" stroke-width="1"/>
+    <text x="550" y="26" font-family="system-ui, sans-serif" font-size="16" font-weight="600" fill="#3b82f6" text-anchor="middle">Fast & Lightweight</text>
+  </g>
+
+  <!-- Terminal preview -->
+  <g transform="translate(100, 440)">
+    <rect width="1000" height="150" rx="12" fill="#111827" stroke="#1f2937" stroke-width="2"/>
+    <rect width="1000" height="36" rx="12" fill="#0a0e14" stroke="#1f2937" stroke-width="1"/>
+    <circle cx="18" cy="18" r="7" fill="#ef4444"/>
+    <circle cx="44" cy="18" r="7" fill="#fbbf24"/>
+    <circle cx="70" cy="18" r="7" fill="#22c55e"/>
+    <text x="20" y="30" font-family="monospace" font-size="11" fill="#9ca3af" text-anchor="middle">gitpulse</text>
+
+    <!-- Terminal content -->
+    <text x="30" y="70" font-family="monospace" font-size="14" fill="#22c55e">$ gitpulse run --dry-run --count 3</text>
+    <text x="30" y="95" font-family="monospace" font-size="14" fill="#f9fafb">GitPulse run (dry-run: true)</text>
+    <text x="30" y="120" font-family="monospace" font-size="14" fill="#f9fafb">  Repository: /home/user/project</text>
+    <text x="30" y="145" font-family="monospace" font-size="14" fill="#22c55e">Created  3 commit(s)</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="600" y="600" font-family="system-ui, sans-serif" font-size="16" fill="#4b5563" text-anchor="middle">
+    gitpulse.dev  •  MIT License  •  Built by BLACKSAUCE
+  </text>
+</svg>
