@@ -1,22 +1,24 @@
 // E2B Sandbox client wrapper for GitPulse playground
 // Handles sandbox lifecycle, command execution, and I/O streaming
+// Session state is persisted in Vercel KV (Upstash Redis) to survive
+// Vercel serverless function cold starts and multi-instance deployments.
 
 import { Sandbox } from '@e2b/code-interpreter';
+import { kv } from '@vercel/kv';
 
 export interface SandboxSession {
   sandboxId: string;
-  sandbox: Sandbox;
   createdAt: number;
   command: string;
   args: string[];
   ptyPid?: number; // E2B PTY process ID for interactive mode
 }
 
-const sessions = new Map<string, SandboxSession>();
-
 const E2B_API_KEY = process.env.E2B_API_KEY;
 const E2B_TEMPLATE_ID = process.env.E2B_TEMPLATE_ID;
 const MAX_SESSION_SECONDS = parseInt(process.env.PLAYGROUND_MAX_SECONDS || '60', 10);
+const KV_SESSION_PREFIX = 'playground:session:';
+const KV_CONCURRENT_PREFIX = 'playground:concurrent:';
 
 if (!E2B_API_KEY) {
   console.warn('[Sandbox] E2B_API_KEY not set — playground will not work');
@@ -27,19 +29,116 @@ if (!E2B_TEMPLATE_ID) {
 }
 
 /**
+ * Persist session metadata to Vercel KV
+ */
+async function saveSessionToKV(sessionId: string, session: Omit<SandboxSession, 'sandbox'>): Promise<void> {
+  try {
+    await kv.set(
+      `${KV_SESSION_PREFIX}${sessionId}`,
+      JSON.stringify(session),
+      { ex: MAX_SESSION_SECONDS + 10 } // Expire slightly after max session time
+    );
+  } catch (error) {
+    console.error('[Sandbox] Failed to save session to KV:', error);
+    // Don't throw - fail open for session persistence
+  }
+}
+
+/**
+ * Load session metadata from Vercel KV
+ */
+async function loadSessionFromKV(sessionId: string): Promise<Omit<SandboxSession, 'sandbox'> | null> {
+  try {
+    const data = await kv.get<string>(`${KV_SESSION_PREFIX}${sessionId}`);
+    if (data) {
+      return JSON.parse(data);
+    }
+    return null;
+  } catch (error) {
+    console.error('[Sandbox] Failed to load session from KV:', error);
+    return null;
+  }
+}
+
+/**
+ * Delete session from Vercel KV
+ */
+async function deleteSessionFromKV(sessionId: string): Promise<void> {
+  try {
+    await kv.del(`${KV_SESSION_PREFIX}${sessionId}`);
+  } catch (error) {
+    console.error('[Sandbox] Failed to delete session from KV:', error);
+  }
+}
+
+/**
+ * Increment concurrent session count for an IP
+ */
+async function incrementConcurrentSessions(ip: string): Promise<number> {
+  try {
+    const key = `${KV_CONCURRENT_PREFIX}${ip}`;
+    const count = await kv.incr(key);
+    if (count === 1) {
+      await kv.expire(key, MAX_SESSION_SECONDS * 2); // Expire after 2x max session
+    }
+    return count;
+  } catch (error) {
+    console.error('[Sandbox] Failed to increment concurrent sessions:', error);
+    return 1; // Fail open
+  }
+}
+
+/**
+ * Decrement concurrent session count for an IP
+ */
+async function decrementConcurrentSessions(ip: string): Promise<void> {
+  try {
+    const key = `${KV_CONCURRENT_PREFIX}${ip}`;
+    await kv.decr(key);
+  } catch (error) {
+    console.error('[Sandbox] Failed to decrement concurrent sessions:', error);
+  }
+}
+
+/**
+ * Get current concurrent session count for an IP
+ */
+async function getConcurrentSessions(ip: string): Promise<number> {
+  try {
+    const key = `${KV_CONCURRENT_PREFIX}${ip}`;
+    const count = await kv.get<number>(key);
+    return count || 0;
+  } catch (error) {
+    console.error('[Sandbox] Failed to get concurrent sessions:', error);
+    return 0;
+  }
+}
+
+/**
  * Create a new sandbox session for a playground command
+ * Persists session metadata to KV for cross-instance recovery
  */
 export async function createSandboxSession(
   sessionId: string,
   command: string,
-  args: string[]
+  args: string[],
+  clientIp?: string
 ): Promise<SandboxSession> {
   if (!E2B_API_KEY) {
     throw new Error('E2B_API_KEY not configured');
   }
 
+  // Check concurrent session limit if IP provided
+  if (clientIp) {
+    const concurrent = await getConcurrentSessions(clientIp);
+    const maxConcurrent = parseInt(process.env.PLAYGROUND_MAX_CONCURRENT_PER_IP || '3', 10);
+    if (concurrent >= maxConcurrent) {
+      throw new Error(`Too many concurrent sessions (max ${maxConcurrent}). Please wait for one to complete.`);
+    }
+    await incrementConcurrentSessions(clientIp);
+  }
+
   // Create sandbox with pre-baked template (has git + gitpulse pre-installed)
-  // In E2B v1.5.1, template is passed as first positional argument if provided
   let sandbox: Sandbox;
   if (E2B_TEMPLATE_ID) {
     sandbox = await Sandbox.create(E2B_TEMPLATE_ID, {
@@ -57,21 +156,48 @@ export async function createSandboxSession(
   await setupScratchRepo(sandbox);
 
   const session: SandboxSession = {
-    sandboxId: sessionId,
-    sandbox,
+    sandboxId: sandbox.sandboxId,
     createdAt: Date.now(),
     command,
     args,
   };
 
-  sessions.set(sessionId, session);
+  // Persist to KV
+  await saveSessionToKV(sessionId, session);
 
   // Auto-cleanup after timeout
   setTimeout(() => {
-    cleanupSession(sessionId);
+    cleanupSession(sessionId, clientIp).catch(console.error);
   }, MAX_SESSION_SECONDS * 1000);
 
   return session;
+}
+
+/**
+ * Reconnect to an existing sandbox using persisted session metadata
+ * Used by /api/playground/input to resume interactive sessions
+ */
+export async function reconnectSandboxSession(sessionId: string): Promise<{ sandbox: Sandbox; session: SandboxSession } | null> {
+  if (!E2B_API_KEY) {
+    throw new Error('E2B_API_KEY not configured');
+  }
+
+  const sessionMeta = await loadSessionFromKV(sessionId);
+  if (!sessionMeta) {
+    return null;
+  }
+
+  // Reconnect to existing sandbox by ID
+  const sandbox = await Sandbox.connect(sessionMeta.sandboxId, {
+    apiKey: E2B_API_KEY,
+  });
+
+  const session: SandboxSession = {
+    ...sessionMeta,
+    sandboxId: sandbox.sandboxId,
+  };
+
+  return { sandbox, session };
 }
 
 /**
@@ -124,12 +250,12 @@ export async function executeCommand(
   command: string,
   args: string[]
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
+  const reconnected = await reconnectSandboxSession(sessionId);
+  if (!reconnected) {
+    throw new Error('Session not found or expired');
   }
 
-  const { sandbox } = session;
+  const { sandbox } = reconnected;
 
   // Build the gitpulse command
   const gpArgs = args.join(' ');
@@ -161,12 +287,12 @@ export async function startInteractiveProcess(
   onStderr: (data: string) => void,
   onExit: (exitCode: number) => void
 ): Promise<void> {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
+  const reconnected = await reconnectSandboxSession(sessionId);
+  if (!reconnected) {
+    throw new Error('Session not found or expired');
   }
 
-  const { sandbox } = session;
+  const { sandbox, session } = reconnected;
 
   // Build the gitpulse command
   const gpArgs = args.join(' ');
@@ -193,7 +319,9 @@ export async function startInteractiveProcess(
     timeoutMs: MAX_SESSION_SECONDS * 1000,
   });
 
+  // Update session with PTY pid and persist
   session.ptyPid = ptyHandle.pid;
+  await saveSessionToKV(sessionId, session);
 
   // Send the command to the PTY as input
   const encoder = new TextEncoder();
@@ -210,6 +338,7 @@ export async function startInteractiveProcess(
       onExit(exitCode);
     } finally {
       session.ptyPid = undefined;
+      await saveSessionToKV(sessionId, session);
     }
   })();
 
@@ -218,92 +347,109 @@ export async function startInteractiveProcess(
 
 /**
  * Send stdin to a running interactive process in the sandbox
+ * Reconnects to sandbox if needed, then sends input to PTY
  */
 export async function sendStdin(sessionId: string, input: string): Promise<void> {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
+  const reconnected = await reconnectSandboxSession(sessionId);
+  if (!reconnected) {
+    throw new Error('Session not found or expired');
   }
 
-  if (!session.ptyPid) {
+  const { sandbox, session } = reconnected;
+  const ptyPid = session.ptyPid;
+
+  if (!ptyPid) {
     throw new Error('No interactive process running');
   }
 
   // Write to the PTY stdin using E2B's sendInput
   const encoder = new TextEncoder();
-  await session.sandbox.pty.sendInput(session.ptyPid, encoder.encode(input));
+  await sandbox.pty.sendInput(ptyPid, encoder.encode(input));
 }
 
 /**
  * Resize the PTY (for terminal resize events)
+ * Reconnects to sandbox if needed
  */
 export async function resizePTY(sessionId: string, cols: number, rows: number): Promise<void> {
-  const session = sessions.get(sessionId);
-  if (!session || !session.ptyPid) {
+  const reconnected = await reconnectSandboxSession(sessionId);
+  if (!reconnected || !reconnected.session.ptyPid) {
     return;
   }
 
-  await session.sandbox.pty.resize(session.ptyPid, { cols, rows });
+  const { sandbox, session } = reconnected;
+  const ptyPid = session.ptyPid;
+
+  await sandbox.pty.resize(ptyPid, { cols, rows });
 }
 
 /**
  * Kill the running interactive process
  */
 export async function killProcess(sessionId: string): Promise<void> {
-  const session = sessions.get(sessionId);
-  if (!session || !session.ptyPid) {
+  const reconnected = await reconnectSandboxSession(sessionId);
+  if (!reconnected || !reconnected.session.ptyPid) {
     return;
   }
 
+  const { sandbox, session } = reconnected;
+  const ptyPid = session.ptyPid;
+
   try {
-    await session.sandbox.pty.kill(session.ptyPid);
+    await sandbox.pty.kill(ptyPid);
   } catch (e) {
     console.error(`[Sandbox] Error killing process:`, e);
   }
   session.ptyPid = undefined;
+  await saveSessionToKV(sessionId, session);
 }
 
 /**
- * Get session info
+ * Get session info from KV
  */
-export function getSession(sessionId: string): SandboxSession | undefined {
-  return sessions.get(sessionId);
+export async function getSession(sessionId: string): Promise<SandboxSession | null> {
+  const sessionMeta = await loadSessionFromKV(sessionId);
+  return sessionMeta || null;
 }
 
 /**
  * Clean up a sandbox session
+ * Decrements concurrent session counter if IP provided
  */
-export async function cleanupSession(sessionId: string): Promise<void> {
-  const session = sessions.get(sessionId);
-  if (session) {
+export async function cleanupSession(sessionId: string, clientIp?: string): Promise<void> {
+  const reconnected = await reconnectSandboxSession(sessionId);
+  if (reconnected) {
+    const { sandbox, session } = reconnected;
     // Kill any running PTY first
     if (session.ptyPid) {
       try {
-        await session.sandbox.pty.kill(session.ptyPid);
+        await sandbox.pty.kill(session.ptyPid);
       } catch (e) {
         console.error(`[Sandbox] Error killing PTY:`, e);
       }
     }
     try {
-      await session.sandbox.kill();
+      await sandbox.kill();
       console.log(`[Sandbox] Cleaned up session ${sessionId}`);
     } catch (e) {
       console.error(`[Sandbox] Error cleaning up ${sessionId}:`, e);
     }
-    sessions.delete(sessionId);
+  }
+  await deleteSessionFromKV(sessionId);
+
+  if (clientIp) {
+    await decrementConcurrentSessions(clientIp);
   }
 }
 
 /**
  * Clean up all expired sessions
+ * Note: KV TTL handles expiration automatically, this is for manual cleanup if needed
  */
-export function cleanupExpiredSessions(): void {
-  const now = Date.now();
-  for (const [id, session] of sessions.entries()) {
-    if (now - session.createdAt > MAX_SESSION_SECONDS * 1000) {
-      cleanupSession(id);
-    }
-  }
+export async function cleanupExpiredSessions(): Promise<void> {
+  // KV handles TTL-based expiration automatically
+  // This function is kept for compatibility but does nothing
+  console.log('[Sandbox] KV handles session expiration automatically via TTL');
 }
 
 /**
@@ -349,3 +495,6 @@ export function validateCommand(command: string, args: string[]): { valid: boole
 
   return { valid: true };
 }
+
+// Export concurrent session helpers for use in rate-limit.ts
+export { getConcurrentSessions, incrementConcurrentSessions, decrementConcurrentSessions };

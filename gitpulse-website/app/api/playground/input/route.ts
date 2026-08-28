@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify session exists
-    const session = getSession(sessionId);
+    // Verify session exists (now loads from KV)
+    const session = await getSession(sessionId);
     if (!session) {
       return NextResponse.json(
         { error: 'Session not found or expired' },

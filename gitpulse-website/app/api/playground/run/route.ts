@@ -43,16 +43,16 @@ export async function POST(request: NextRequest) {
     const acceptHeader = request.headers.get('accept');
     const wantsSSE = acceptHeader?.includes('text/event-stream');
 
-    // Create sandbox session
-    const session = await createSandboxSession(sessionId, command, args);
+    // Create sandbox session with client IP for concurrent session limiting
+    const session = await createSandboxSession(sessionId, command, args, ip);
 
     if (wantsSSE) {
       // Return SSE stream for interactive commands
-      return streamSSE(session, command, args, rateLimit);
+      return streamSSE(sessionId, command, args, rateLimit, ip);
     } else {
       // Execute and return full result
       const result = await executeCommand(sessionId, command, args);
-      await cleanupSession(sessionId);
+      await cleanupSession(sessionId, ip);
 
       return NextResponse.json(
         {
@@ -73,10 +73,11 @@ export async function POST(request: NextRequest) {
 }
 
 async function streamSSE(
-  session: { sandboxId: string; sandbox: any },
+  sessionId: string,
   command: string,
   args: string[],
-  rateLimit: { allowed: boolean; remaining: number; resetTime: number; limit: number }
+  rateLimit: { allowed: boolean; remaining: number; resetTime: number; limit: number },
+  clientIp?: string
 ) {
   const encoder = new TextEncoder();
   let closed = false;
@@ -95,13 +96,10 @@ async function streamSSE(
       };
 
       try {
-        // For interactive mode, we need to use the sandbox's PTY/terminal API
-        // E2B's @e2b/code-interpreter supports terminal sessions via process.start()
-        const { sandboxId } = session;
-
         // Start interactive process with streaming callbacks
+        // The function will reconnect to the sandbox using the sessionId
         await startInteractiveProcess(
-          sandboxId,
+          sessionId,
           command,
           args,
           // onStdout
@@ -118,7 +116,7 @@ async function streamSSE(
             closed = true;
             controller.close();
             // Cleanup session after completion
-            cleanupSession(sandboxId).catch(console.error);
+            cleanupSession(sessionId, clientIp).catch(console.error);
           }
         );
 
@@ -129,7 +127,7 @@ async function streamSSE(
 
     cancel() {
       closed = true;
-      cleanupSession(session.sandboxId).catch(console.error);
+      cleanupSession(sessionId, clientIp).catch(console.error);
     },
   });
 
