@@ -1,4 +1,9 @@
 import type { NextConfig } from 'next';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Read version from VERSION file at build time
+const version = readFileSync(join(process.cwd(), '..', 'VERSION'), 'utf-8').trim();
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -9,6 +14,9 @@ const nextConfig: NextConfig = {
         hostname: '**.e2b.dev',
       },
     ],
+  },
+  env: {
+    NEXT_PUBLIC_GITPULSE_VERSION: version,
   },
   async headers() {
     return [

@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PLAYGROUND_COMMANDS } from '@/lib/commands';
 import { Loader2, Terminal as TerminalIcon, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 // Dynamic import Terminal to avoid SSR issues with xterm.js
 const Terminal = dynamicImport(() => import('@/components/Terminal').then(mod => mod.Terminal), {
@@ -189,7 +190,7 @@ function PlaygroundContent() {
     }
   };
 
-  const handleSendInput = (input: string) => {
+  const handleSendInput = useCallback((input: string) => {
     if (!sessionId || !isInteractive) return;
 
     // Send stdin to sandbox
@@ -198,7 +199,7 @@ function PlaygroundContent() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, input }),
     }).catch(console.error);
-  };
+  }, [sessionId, isInteractive]);
 
   const handleTerminalData = useCallback((data: string) => {
     handleSendInput(data);
@@ -236,7 +237,7 @@ function PlaygroundContent() {
         <div className="section-container">
           <div className="max-w-6xl mx-auto">
             <nav className="flex items-center gap-2 text-sm text-text-muted mb-6" aria-label="Breadcrumb">
-              <a href="/" className="hover:text-text-primary transition-colors">Home</a>
+              <Link href="/" className="hover:text-text-primary transition-colors">Home</Link>
               <TerminalIcon className="h-4 w-4" />
               <span className="font-mono text-text-primary">Playground</span>
             </nav>
@@ -411,7 +412,7 @@ function PlaygroundContent() {
                   <p className="font-medium text-amber-300 mb-1">Disposable Sandbox Notice</p>
                   <p>
                     This terminal runs in an ephemeral E2B microVM with a scratch Git repository.
-                    A local bare repo serves as "origin" — no real GitHub credentials or network egress.
+                    A local bare repo serves as &ldquo;origin&rdquo; &mdash; no real GitHub credentials or network egress.
                     The sandbox is destroyed after 60 seconds of inactivity.
                   </p>
                 </div>
@@ -441,7 +442,7 @@ export default function PlaygroundPage() {
           <div className="section-container">
             <div className="max-w-6xl mx-auto">
               <nav className="flex items-center gap-2 text-sm text-text-muted mb-6" aria-label="Breadcrumb">
-                <a href="/" className="hover:text-text-primary transition-colors">Home</a>
+                <Link href="/" className="hover:text-text-primary transition-colors">Home</Link>
                 <TerminalIcon className="h-4 w-4" />
                 <span className="font-mono text-text-primary">Playground</span>
               </nav>

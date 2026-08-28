@@ -192,7 +192,7 @@ export function DocsPage({ command }: DocsPageProps) {
 
       <footer className="py-8 border-t border-border-subtle">
         <div className="section-container text-center text-sm text-text-muted">
-          <p>GitPulse v1.0.0 — <a href="https://github.com/dinalegw/GitPulse" target="_blank" rel="noopener noreferrer" className="link">View source on GitHub</a></p>
+          <p>GitPulse v{process.env.NEXT_PUBLIC_GITPULSE_VERSION || '1.0.0'} — <a href="https://github.com/dinalegw/GitPulse" target="_blank" rel="noopener noreferrer" className="link">View source on GitHub</a></p>
         </div>
       </footer>
     </div>

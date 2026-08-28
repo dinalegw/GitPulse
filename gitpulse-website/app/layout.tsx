@@ -3,6 +3,7 @@ import './globals.css';
 import 'xterm/css/xterm.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://gitpulse.dev'),
   title: {
     default: 'GitPulse — Automate scheduled Git commits',
     template: '%s | GitPulse',

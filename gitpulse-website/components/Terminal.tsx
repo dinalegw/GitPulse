@@ -141,7 +141,7 @@ export function Terminal({
       terminalRef.current = null;
       setIsReady(false);
     };
-  }, [initialOutput, readOnly, onData, onReady]);
+  }, [initialOutput, readOnly, onData, onReady, onResize]);
 
   // Public method to write to terminal
   const write = (data: string) => {

@@ -8,6 +8,7 @@ import { StepDiagram } from '@/components/StepDiagram';
 import { TrustBadges, PlatformIcons } from '@/components/TrustBadges';
 import { Github, ArrowRight, Check, Terminal as TerminalIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 // Dynamic import Terminal to avoid SSR issues with xterm.js
 const Terminal = dynamicImport(() => import('@/components/Terminal').then(mod => mod.Terminal), {
@@ -37,7 +38,13 @@ Skipped  0 (nothing to commit)
 Pushed   skipped (dry-run)
 Duration 187.42ms`;
 
+function getVersion() {
+  // Read from environment variable set at build time
+  return process.env.NEXT_PUBLIC_GITPULSE_VERSION || '1.0.0';
+}
+
 export default function HomePage() {
+  const version = getVersion();
   return (
     <div className="min-h-screen flex flex-col">
       {/* Hero Section */}
@@ -60,7 +67,7 @@ export default function HomePage() {
                   <span className="text-text-primary">Git</span>
                   <span className="gradient-pulse">Pulse</span>
                 </h1>
-                <p className="text-sm text-text-muted font-mono mt-1">v1.0.0</p>
+                <p className="text-sm text-text-muted font-mono mt-1">v{version}</p>
               </div>
             </div>
 
@@ -127,7 +134,7 @@ export default function HomePage() {
             <div className="mt-6 text-center">
               <p className="text-sm text-text-muted">
                 Try the live playground →
-                <a href="/playground" className="link ml-1">Run GitPulse in your browser</a>
+                <Link href="/playground" className="link ml-1">Run GitPulse in your browser</Link>
               </p>
             </div>
           </div>
@@ -251,8 +258,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
             <div className="flex flex-wrap items-center justify-center gap-8 text-sm text-text-muted">
               <a href="https://github.com/dinalegw/GitPulse" target="_blank" rel="noopener noreferrer" className="link">GitHub</a>
-              <a href="/docs" className="link">Documentation</a>
-              <a href="/playground" className="link">Playground</a>
+              <Link href="/docs" className="link">Documentation</Link>
+              <Link href="/playground" className="link">Playground</Link>
               <span>MIT License</span>
             </div>
 
