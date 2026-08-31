@@ -7,8 +7,27 @@ import (
 	"testing"
 )
 
+type fakeGitRunner struct {
+	results map[string]string
+	errors  map[string]error
+	calls   []string
+}
+
+func newFakeGitRunner() *fakeGitRunner {
+	return &fakeGitRunner{results: map[string]string{}, errors: map[string]error{}}
+}
+
+func (f *fakeGitRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
+	key := "git " + strings.Join(args, " ")
+	f.calls = append(f.calls, key)
+	if err, ok := f.errors[key]; ok {
+		return "", err
+	}
+	return f.results[key], nil
+}
+
 func TestRemoteURL(t *testing.T) {
-	run := newFakeRunner()
+	run := newFakeGitRunner()
 	run.results["git remote get-url --push origin"] = "git@github.com:owner/repo.git"
 	c := New("/repo", run)
 	got, err := c.RemoteURL(context.Background(), "origin")
@@ -18,7 +37,7 @@ func TestRemoteURL(t *testing.T) {
 }
 
 func TestUpstreamBranch(t *testing.T) {
-	run := newFakeRunner()
+	run := newFakeGitRunner()
 	run.results["git rev-parse --abbrev-ref --symbolic-full-name @{u}"] = "origin/master"
 	c := New("/repo", run)
 	got, err := c.UpstreamBranch(context.Background())
@@ -28,7 +47,7 @@ func TestUpstreamBranch(t *testing.T) {
 }
 
 func TestUpstreamBranchWithoutTracking(t *testing.T) {
-	run := newFakeRunner()
+	run := newFakeGitRunner()
 	run.errors["git rev-parse --abbrev-ref --symbolic-full-name @{u}"] = fmt.Errorf("no upstream")
 	c := New("/repo", run)
 	got, err := c.UpstreamBranch(context.Background())
@@ -38,7 +57,7 @@ func TestUpstreamBranchWithoutTracking(t *testing.T) {
 }
 
 func TestUserIdentity(t *testing.T) {
-	run := newFakeRunner()
+	run := newFakeGitRunner()
 	run.results["git config --get user.name"] = "Jane Developer"
 	run.results["git config --get user.email"] = "jane@example.com"
 	c := New("/repo", run)
@@ -49,7 +68,7 @@ func TestUserIdentity(t *testing.T) {
 }
 
 func TestPushDryRunUsesHEADRefspec(t *testing.T) {
-	run := newFakeRunner()
+	run := newFakeGitRunner()
 	run.results["git push --dry-run origin HEAD:main"] = "Everything up-to-date"
 	c := New("/repo", run)
 	if err := c.PushDryRun(context.Background(), "origin", "main"); err != nil {
@@ -61,7 +80,7 @@ func TestPushDryRunUsesHEADRefspec(t *testing.T) {
 }
 
 func TestPushHeadUsesHEADRefspec(t *testing.T) {
-	run := newFakeRunner()
+	run := newFakeGitRunner()
 	run.results["git push origin HEAD:master"] = ""
 	c := New("/repo", run)
 	if err := c.PushHead(context.Background(), "origin", "master"); err != nil {
@@ -73,7 +92,7 @@ func TestPushHeadUsesHEADRefspec(t *testing.T) {
 }
 
 func TestPushDryRunFailureIsActionable(t *testing.T) {
-	run := newFakeRunner()
+	run := newFakeGitRunner()
 	run.errors["git push --dry-run origin HEAD:main"] = fmt.Errorf("permission denied")
 	c := New("/repo", run)
 	err := c.PushDryRun(context.Background(), "origin", "main")
