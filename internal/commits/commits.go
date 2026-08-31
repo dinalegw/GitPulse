@@ -124,6 +124,13 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 
 	res := Result{Expected: n, DryRun: c.dryRun}
 
+	// Do not create local commits that we already know cannot be pushed.
+	if !c.dryRun && c.cfg.PushRemote != "" && c.cfg.RemoteBranch != "" {
+		if err := c.preflightPush(ctx); err != nil {
+			return res, err
+		}
+	}
+
 	startSeq, err := c.meta.Count()
 	if err != nil {
 		return Result{}, err
@@ -141,9 +148,6 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 			return res, err
 		}
 
-		// Re-check immediately before each mutation. This closes the obvious
-		// time-of-check/time-of-use window between an earlier validation and the
-		// actual metadata write/add/commit sequence.
 		if !c.dryRun {
 			if err := validation.ValidateRepositoryForMutation(ctx, c.client, c.cfg); err != nil {
 				res.Duration = time.Since(start)
@@ -210,18 +214,50 @@ func (c *Cycle) commitOnce(ctx context.Context, when time.Time, seq int) (bool, 
 	if err := c.meta.Append(when, seq); err != nil {
 		return false, err
 	}
-
 	if err := c.client.Add(ctx, c.cfg.MetadataDir); err != nil {
 		return false, err
 	}
-
 	created, err := c.client.Commit(ctx, message)
 	if err != nil {
 		return false, err
 	}
-
 	c.log.WithField(logger.FieldCommitIndex, seq).Info("created commit")
 	return created, nil
+}
+
+func (c *Cycle) preflightPush(ctx context.Context) error {
+	hasRemote, err := c.client.HasRemote(ctx, c.cfg.PushRemote)
+	if err != nil {
+		return err
+	}
+	if !hasRemote {
+		return fmt.Errorf("cannot push: remote %q is not configured; configure a writable remote for this repository", c.cfg.PushRemote)
+	}
+
+	name, email, err := c.client.UserIdentity(ctx)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(email) == "" {
+		return fmt.Errorf("cannot run GitPulse: Git user.email is not configured; set it with 'git config --global user.email <your-github-email>'")
+	}
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("cannot run GitPulse: Git user.name is not configured; set it with 'git config --global user.name <your-name>'")
+	}
+
+	url, err := c.client.RemoteURL(ctx, c.cfg.PushRemote)
+	if err != nil {
+		return err
+	}
+	c.log.WithFields(map[string]any{
+		logger.FieldRemote: c.cfg.PushRemote,
+		logger.FieldBranch: c.cfg.RemoteBranch,
+	}).Info("checking push access")
+
+	if err := c.client.PushDryRun(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
+		return fmt.Errorf("GitPulse cannot push to %s/%s (%s): %w. If this is the upstream GitPulse repository, fork it or configure push_remote to a repository you own", c.cfg.PushRemote, c.cfg.RemoteBranch, url, err)
+	}
+	return nil
 }
 
 func (c *Cycle) push(ctx context.Context) (bool, error) {
@@ -230,26 +266,14 @@ func (c *Cycle) push(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	hasRemote, err := c.client.HasRemote(ctx, c.cfg.PushRemote)
-	if err != nil {
+	if err := c.preflightPush(ctx); err != nil {
 		return false, err
-	}
-	if !hasRemote {
-		c.log.Warn("skipping push: remote %q is not configured in the repository; add it with 'git remote add %s <url>'", c.cfg.PushRemote, c.cfg.PushRemote)
-		return false, nil
 	}
 
-	if c.log != nil {
-		c.log.WithFields(map[string]any{
-			logger.FieldRemote: c.cfg.PushRemote,
-			logger.FieldBranch: c.cfg.RemoteBranch,
-		}).Info("pushing commits")
+	name, email, _ := c.client.UserIdentity(ctx)
+	if err := c.client.PushHead(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
+		return false, fmt.Errorf("GitPulse created the commit as %s <%s>, but the push failed for %s/%s: %w", name, email, c.cfg.PushRemote, c.cfg.RemoteBranch, err)
 	}
-	if err := c.client.PushDetailed(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
-		return false, err
-	}
-	if c.log != nil {
-		c.log.WithField(logger.FieldPushed, true).Info("push completed")
-	}
+	c.log.WithField(logger.FieldPushed, true).Info("push completed")
 	return true, nil
 }
