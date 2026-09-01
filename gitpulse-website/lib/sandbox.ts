@@ -379,6 +379,9 @@ export async function resizePTY(sessionId: string, cols: number, rows: number): 
 
   const { sandbox, session } = reconnected;
   const ptyPid = session.ptyPid;
+  if (typeof ptyPid !== 'number') {
+    return;
+  }
 
   await sandbox.pty.resize(ptyPid, { cols, rows });
 }
@@ -394,6 +397,11 @@ export async function killProcess(sessionId: string): Promise<void> {
 
   const { sandbox, session } = reconnected;
   const ptyPid = session.ptyPid;
+  if (typeof ptyPid !== 'number') {
+    session.ptyPid = undefined;
+    await saveSessionToKV(sessionId, session);
+    return;
+  }
 
   try {
     await sandbox.pty.kill(ptyPid);

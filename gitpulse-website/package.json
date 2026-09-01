@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/playground-state.test.mjs tests/audit-log.test.mjs tests/run-store.test.mjs"
   },
   "dependencies": {
     "@e2b/code-interpreter": "^1.1.0",

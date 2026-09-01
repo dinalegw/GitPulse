@@ -6,3 +6,9 @@ out/
 .env*.local
 *.log
 .DS_Store
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
+
+# Tests
+/tests/*.tmp
