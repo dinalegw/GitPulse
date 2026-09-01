@@ -8,6 +8,7 @@ package commits
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,29 @@ import (
 	"github.com/dinalegw/GitPulse/internal/utils"
 	"github.com/dinalegw/GitPulse/internal/validation"
 )
+
+// ErrPushNotConfigured indicates that GitPulse is configured to push to a
+// remote, but the repository does not actually have that remote configured.
+// It is treated as a skip rather than a fatal error so that local-only
+// workflows (e.g. a freshly initialised repository that will get a remote
+// later) continue to produce commits without pushes.
+var ErrPushNotConfigured = errors.New("gitpulse: push remote is not configured in the repository")
+
+// PushSkippedError reports why a configured push was skipped instead of
+// actually performed. Callers can use errors.Is to detect this category.
+type PushSkippedError struct {
+	Remote string
+	Branch string
+	Reason string
+}
+
+func (e *PushSkippedError) Error() string {
+	return fmt.Sprintf("push skipped for %s/%s: %s", e.Remote, e.Branch, e.Reason)
+}
+
+func (e *PushSkippedError) Is(target error) bool {
+	return target == ErrPushNotConfigured
+}
 
 type Metadata struct {
 	dir  string
@@ -124,10 +148,18 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 
 	res := Result{Expected: n, DryRun: c.dryRun}
 
-	// Do not create local commits that we already know cannot be pushed.
+	// Before creating local commits that might be pushed later, verify the
+	// configured push target will actually accept them. A missing remote is
+	// not a fatal error — local-only commits remain supported — but a real
+	// push failure (auth, permission, branch protection, network) must abort
+	// the cycle so we never silently leave behind unpushable commits.
 	if !c.dryRun && c.cfg.PushRemote != "" && c.cfg.RemoteBranch != "" {
 		if err := c.preflightPush(ctx); err != nil {
-			return res, err
+			if !errors.Is(err, ErrPushNotConfigured) {
+				res.Duration = time.Since(start)
+				return res, err
+			}
+			c.log.WithField(logger.FieldRemote, c.cfg.PushRemote).Warn("push preflight: not configured; commits will be local only")
 		}
 	}
 
@@ -228,15 +260,19 @@ func (c *Cycle) commitOnce(ctx context.Context, when time.Time, seq int) (bool, 
 func (c *Cycle) preflightPush(ctx context.Context) error {
 	hasRemote, err := c.client.HasRemote(ctx, c.cfg.PushRemote)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot check configured remotes: %w", err)
 	}
 	if !hasRemote {
-		return fmt.Errorf("cannot push: remote %q is not configured; configure a writable remote for this repository", c.cfg.PushRemote)
+		return &PushSkippedError{
+			Remote: c.cfg.PushRemote,
+			Branch: c.cfg.RemoteBranch,
+			Reason: fmt.Sprintf("remote %q is not configured in the repository; add it with 'git remote add %s <url>'", c.cfg.PushRemote, c.cfg.PushRemote),
+		}
 	}
 
 	name, email, err := c.client.UserIdentity(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot read Git author identity: %w", err)
 	}
 	if strings.TrimSpace(email) == "" {
 		return fmt.Errorf("cannot run GitPulse: Git user.email is not configured; set it with 'git config --global user.email <your-github-email>'")
@@ -247,7 +283,7 @@ func (c *Cycle) preflightPush(ctx context.Context) error {
 
 	url, err := c.client.RemoteURL(ctx, c.cfg.PushRemote)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot read push URL for remote %q: %w", c.cfg.PushRemote, err)
 	}
 	c.log.WithFields(map[string]any{
 		logger.FieldRemote: c.cfg.PushRemote,
@@ -266,14 +302,26 @@ func (c *Cycle) push(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	if err := c.preflightPush(ctx); err != nil {
-		return false, err
+	hasRemote, err := c.client.HasRemote(ctx, c.cfg.PushRemote)
+	if err != nil {
+		return false, fmt.Errorf("cannot check configured remotes: %w", err)
+	}
+	if !hasRemote {
+		c.log.WithField(logger.FieldRemote, c.cfg.PushRemote).Warn("skipping push: remote is not configured in the repository")
+		return false, nil
 	}
 
-	name, email, _ := c.client.UserIdentity(ctx)
-	if err := c.client.PushHead(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
-		return false, fmt.Errorf("GitPulse created the commit as %s <%s>, but the push failed for %s/%s: %w", name, email, c.cfg.PushRemote, c.cfg.RemoteBranch, err)
+	if c.log != nil {
+		c.log.WithFields(map[string]any{
+			logger.FieldRemote: c.cfg.PushRemote,
+			logger.FieldBranch: c.cfg.RemoteBranch,
+		}).Info("pushing commits")
 	}
-	c.log.WithField(logger.FieldPushed, true).Info("push completed")
+	if err := c.client.PushHead(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
+		return false, fmt.Errorf("GitPulse created the commits but the push to %s/%s failed: %w", c.cfg.PushRemote, c.cfg.RemoteBranch, err)
+	}
+	if c.log != nil {
+		c.log.WithField(logger.FieldPushed, true).Info("push completed")
+	}
 	return true, nil
 }
