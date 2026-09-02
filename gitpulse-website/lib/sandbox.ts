@@ -364,7 +364,7 @@ export async function sendStdin(sessionId: string, input: string): Promise<void>
 
   // Write to the PTY stdin using E2B's sendInput
   const encoder = new TextEncoder();
-  await sandbox.pty.sendInput(ptyPid, encoder.encode(input));
+  await sandbox.pty.sendInput(ptyPid!, encoder.encode(input)); // non-null asserted by guard above
 }
 
 /**
@@ -378,7 +378,7 @@ export async function resizePTY(sessionId: string, cols: number, rows: number): 
   }
 
   const { sandbox, session } = reconnected;
-  const ptyPid = session.ptyPid;
+  const ptyPid = session.ptyPid!; // non-null asserted by guard above
 
   await sandbox.pty.resize(ptyPid, { cols, rows });
 }
@@ -393,7 +393,7 @@ export async function killProcess(sessionId: string): Promise<void> {
   }
 
   const { sandbox, session } = reconnected;
-  const ptyPid = session.ptyPid;
+  const ptyPid = session.ptyPid!; // non-null asserted by guard above
 
   try {
     await sandbox.pty.kill(ptyPid);
