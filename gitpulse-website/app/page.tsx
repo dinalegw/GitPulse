@@ -96,6 +96,10 @@ export default function HomePage() {
             {/* CTA Buttons */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
               <CopyInstallCommand />
+              <Link href="/playground" className="btn-secondary">
+                <TerminalIcon className="h-5 w-5" />
+                Try in Browser
+              </Link>
               <a
                 href="https://github.com/dinalegw/GitPulse"
                 target="_blank"
@@ -199,39 +203,66 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Quick Install Section */}
-      <section className="py-20 lg:py-28 bg-bg-card/50 border-y border-border-subtle">
+{/* Two journeys: USE vs DEVELOP */}
+      <section className="py-20 lg:py-28 bg-bg-card-2/50 border-y border-border-subtle">
         <div className="section-container">
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-5xl mx-auto">
             <div className="text-center mb-10">
-              <h3 className="heading-3 mb-3">Quick Install</h3>
-              <p className="text-lead">Bootstrap installer handles Go, Git, and dependencies automatically</p>
+              <h3 className="heading-3 mb-3">Two ways to use GitPulse</h3>
+              <p className="text-lead">Most people only need one of these. Pick the journey that matches you.</p>
             </div>
 
-            <div className="card p-8">
-              <div className="mb-6">
-                <p className="text-text-muted mb-3">Linux / macOS:</p>
-                <div className="code-block">
-                  <pre className="font-mono text-sm"><code>{`git clone https://github.com/dinalegw/GitPulse.git
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="card p-8">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="badge badge-success">I want to USE GitPulse</span>
+                </div>
+                <h4 className="heading-3 mb-3">Install the CLI on your machine</h4>
+                <p className="text-text-muted mb-4 text-sm">
+                  No need to clone or build from source. The bootstrap installer handles Go, Git, and the binary for you.
+                </p>
+                <p className="text-text-muted mb-2 text-sm font-medium">Linux / macOS:</p>
+                <div className="code-block mb-4">
+                  <pre className="font-mono text-xs whitespace-pre-wrap break-all"><code>{`curl -fsSL https://gitpulse.dev/install.sh | sh
+gitpulse init
+gitpulse doctor`}</code></pre>
+                </div>
+                <p className="text-text-muted mb-2 text-sm font-medium">Windows PowerShell:</p>
+                <div className="code-block mb-4">
+                  <pre className="font-mono text-xs whitespace-pre-wrap break-all"><code>{`iwr -useb https://gitpulse.dev/install.ps1 | iex
+gitpulse init
+gitpulse doctor`}</code></pre>
+                </div>
+                <p className="text-xs text-text-muted/80">
+                  Or try the <Link href="/playground" className="link">browser playground</Link> first — no install required.
+                </p>
+              </div>
+
+              <div className="card p-8">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="badge text-accent-secondary bg-accent-secondary/10" style={{ borderColor: 'rgba(168, 85, 247, 0.3)' }}>I want to DEVELOP GitPulse</span>
+                </div>
+                <h4 className="heading-3 mb-3">Fork the source and build</h4>
+                <p className="text-text-muted mb-4 text-sm">
+                  Only clone the repository if you intend to modify or contribute to GitPulse itself. You will need Go 1.26+ and Git.
+                </p>
+                <p className="text-text-muted mb-2 text-sm font-medium">Linux / macOS:</p>
+                <div className="code-block mb-4">
+                  <pre className="font-mono text-xs whitespace-pre-wrap break-all"><code>{`git clone https://github.com/dinalegw/GitPulse.git
 cd GitPulse
 chmod +x scripts/bootstrap.sh
 ./scripts/bootstrap.sh`}</code></pre>
                 </div>
-              </div>
-              <div className="mb-6">
-                <p className="text-text-muted mb-3">Windows PowerShell:</p>
-                <div className="code-block">
-                  <pre className="font-mono text-sm"><code>{`git clone https://github.com/dinalegw/GitPulse.git
+                <p className="text-text-muted mb-2 text-sm font-medium">Windows PowerShell:</p>
+                <div className="code-block mb-4">
+                  <pre className="font-mono text-xs whitespace-pre-wrap break-all"><code>{`git clone https://github.com/dinalegw/GitPulse.git
 cd GitPulse
 Set-ExecutionPolicy -Scope Process Bypass
 .\\scripts\\bootstrap.ps1`}</code></pre>
                 </div>
-              </div>
-              <div className="text-center">
-                <CopyInstallCommand
-                  command="git clone https://github.com/dinalegw/GitPulse.git && cd GitPulse && chmod +x scripts/bootstrap.sh && ./scripts/bootstrap.sh"
-                  label="Copy Linux/macOS command"
-                />
+                <p className="text-xs text-text-muted/80">
+                  See <Link href="/docs" className="link">the developer docs</Link> for the build/test workflow.
+                </p>
               </div>
             </div>
           </div>
@@ -260,6 +291,7 @@ Set-ExecutionPolicy -Scope Process Bypass
               <a href="https://github.com/dinalegw/GitPulse" target="_blank" rel="noopener noreferrer" className="link">GitHub</a>
               <Link href="/docs" className="link">Documentation</Link>
               <Link href="/playground" className="link">Playground</Link>
+              <Link href="/connect" className="link">Connect GitHub</Link>
               <span>MIT License</span>
             </div>
 
