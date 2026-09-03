@@ -114,3 +114,41 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & (Join-Path $env:PREFIX 'gitpulse.exe') version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  website:
+    name: Website (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install dependencies
+        working-directory: gitpulse-website
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: gitpulse-website
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: gitpulse-website
+        run: npm run lint
+
+      - name: Test
+        working-directory: gitpulse-website
+        run: npm run test
+
+      - name: Build
+        working-directory: gitpulse-website
+        env:
+          E2B_API_KEY: dummy_for_build
+        run: npm run build

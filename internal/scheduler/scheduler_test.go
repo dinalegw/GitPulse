@@ -278,3 +278,65 @@ var errJobFailed = &jobError{}
 type jobError struct{}
 
 func (e *jobError) Error() string { return "job failed" }
+
+// TestRunLoopRecoversFromLargeClockJump simulates the machine being asleep
+// for a long period: the scheduler wakes up, sees it is now well past the
+// next scheduled event, recomputes NextRun, and continues running cleanly
+// without crashing. The scheduler is allowed to run the missed job once
+// because it caught up to "now"; what matters is that the loop stays alive
+// and does not spam the repository with one job per elapsed tick.
+func TestRunLoopRecoversFromLargeClockJump(t *testing.T) {
+	cfg := testConfig()
+	cfg.CommitsPerDay = 1
+
+	clock := newFakeClock(at(8, 0, 0))
+	s := NewDailySchedulerWithClock(clock, logger.NewDiscard())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var mu sync.Mutex
+	jobCalls := 0
+	job := func(ctx context.Context) error {
+		mu.Lock()
+		jobCalls++
+		mu.Unlock()
+		return nil
+	}
+
+	// Jump well past the schedule window before the scheduler's first
+	// Sleep returns. NextRun will then resolve to the following day's
+	// start of the window.
+	clock.now = clock.now.AddDate(0, 0, 1)
+	clock.now = clock.now.Add(2 * time.Hour)
+
+	done := make(chan error, 1)
+	go func() { done <- s.RunLoop(ctx, cfg, job) }()
+
+	// Let the loop run a beat, then cancel.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunLoop returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunLoop did not terminate after cancellation")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if jobCalls == 0 {
+		t.Fatal("job did not run after the scheduler woke up")
+	}
+	// The fake clock's per-sleep tick is 5ms; our 50ms window can produce
+	// a small number of catch-up runs. What we are protecting against is
+	// runaway: one per scheduled slot per missed day. Cap at a small,
+	// conservative number so a regression that turns each tick into a job
+	// is caught loudly.
+	if jobCalls > 8 {
+		t.Errorf("job ran %d times after one wake-up; expected far fewer", jobCalls)
+	}
+}

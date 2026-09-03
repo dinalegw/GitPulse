@@ -126,3 +126,36 @@ go mod download
 ./scripts/build.sh
 ./scripts/install.sh
 ```
+
+## Web platform
+
+This repository also contains the source for [gitpulse.dev](https://gitpulse.dev),
+the marketing site + sandbox playground, in [`gitpulse-website/`](gitpulse-website/).
+
+The playground runs the real `gitpulse` binary in an ephemeral E2B microVM
+with a scratch Git repository. It is anonymous by default; sign-in with GitHub
+is opt-in and only required to operate on a repository you own.
+
+The hosted backend (account, workspace, billing, scheduled-job orchestration)
+lives in a separate private repository. The open-source layer only defines
+the contracts (entitlements, authorization helpers, audit event shapes) that
+the hosted backend consumes. See [`docs/open-source-boundary.md`](docs/open-source-boundary.md)
+for the exact split.
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — CLI architecture
+- [docs/cli.md](docs/cli.md) — CLI command reference
+- [docs/configuration.md](docs/configuration.md) — configuration keys
+- [docs/installation.md](docs/installation.md) — cross-platform install guide
+- [docs/github-push.md](docs/github-push.md) — how the CLI pushes to GitHub
+- [docs/github-integration.md](docs/github-integration.md) — how the website integrates with GitHub
+- [docs/playground.md](docs/playground.md) — playground architecture
+- [docs/privacy.md](docs/privacy.md) — what data the hosted platform stores
+- [docs/monetization.md](docs/monetization.md) — how the hosted platform may be monetized in the future
+- [docs/open-source-boundary.md](docs/open-source-boundary.md) — what is MIT and what is not
+
+## Security
+
+Report vulnerabilities privately to `security@gitpulse.invalid`. See
+[`SECURITY.md`](SECURITY.md) for the full policy.
