@@ -141,7 +141,7 @@ func TestAddPassesPathsAsArgs(t *testing.T) {
 
 func TestCommitNothingToCommit(t *testing.T) {
 	run := newFakeRunner()
-	run.errors["git commit --quiet -m msg"] = fmt.Errorf("nothing to commit, working tree clean")
+	run.errors["git commit -m msg"] = fmt.Errorf("nothing to commit, working tree clean")
 
 	c := New("/repo", run)
 	created, err := c.Commit(context.Background(), "msg")
@@ -152,7 +152,7 @@ func TestCommitNothingToCommit(t *testing.T) {
 
 func TestCommitRealError(t *testing.T) {
 	run := newFakeRunner()
-	run.errors["git commit --quiet -m msg"] = fmt.Errorf("identity unknown")
+	run.errors["git commit -m msg"] = fmt.Errorf("identity unknown")
 
 	c := New("/repo", run)
 	if _, err := c.Commit(context.Background(), "msg"); err == nil {
