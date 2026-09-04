@@ -143,7 +143,7 @@ func (c *Client) Add(ctx context.Context, paths ...string) error {
 // Commit creates a commit with the given message. It returns false with nil
 // error when there is nothing to commit.
 func (c *Client) Commit(ctx context.Context, message string) (bool, error) {
-	out, err := c.run.Run(ctx, c.dir, "commit", "--quiet", "-m", message)
+	out, err := c.run.Run(ctx, c.dir, "commit", "-m", message)
 	if err != nil {
 		msg := strings.ToLower(out + " " + err.Error())
 		if strings.Contains(msg, "nothing to commit") || strings.Contains(msg, "no changes added") {

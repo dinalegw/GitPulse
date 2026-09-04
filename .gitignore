@@ -7,8 +7,6 @@
 /coverage.html
 
 # GitPulse local runtime state
-# Activity logs are machine-local and must not be merged between clones.
-.gitpulse/activity.log
 
 # Editor/OS
 .DS_Store
