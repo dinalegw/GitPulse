@@ -1,0 +1,27 @@
+# GitPulse
+
+GitPulse is an open-source, local-first Git repository automation CLI for developers.
+
+## Primary site
+
+https://start-gitpulse.vercel.app/
+
+## Explore
+
+- Playground: https://start-gitpulse.vercel.app/playground
+- Documentation: https://start-gitpulse.vercel.app/docs
+- GitHub: https://github.com/dinalegw/GitPulse
+
+## Core capabilities
+
+- Repository validation before automated changes
+- Dry-run execution
+- Scheduled Git workflows
+- Controlled commit and push workflows
+- Cross-platform CLI for Windows, macOS, and Linux
+- Local configuration and diagnostics
+- `doctor`, `validate`, `status`, and `logs` commands
+
+## Responsible use
+
+GitPulse automates user-configured Git operations. It is not intended to fabricate development activity or deceive GitHub. Users are responsible for ensuring automated changes represent legitimate repository activity.
