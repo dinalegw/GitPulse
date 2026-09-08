@@ -1,0 +1,48 @@
+name: Refresh pnpm lockfile
+
+on:
+  push:
+    branches:
+      - fix/pnpm-lock-vercel-sandbox
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gitpulse-website
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/pnpm-lock-vercel-sandbox
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: gitpulse-website/pnpm-lock.yaml
+      - name: Refresh lockfile
+        run: pnpm install --lockfile-only --no-frozen-lockfile
+      - name: Verify frozen install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm run typecheck
+      - name: Build
+        run: pnpm run build
+      - name: Commit lockfile
+        working-directory: .
+        run: |
+          if git diff --quiet -- gitpulse-website/pnpm-lock.yaml; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gitpulse-website/pnpm-lock.yaml
+          git commit -m "build: refresh pnpm lockfile for Vercel Sandbox"
+          git push origin HEAD:fix/pnpm-lock-vercel-sandbox
