@@ -239,12 +239,12 @@ export async function startInteractiveProcess(
   onExit(result.exitCode);
 }
 
-export async function sendStdin(): Promise<void> {
+export async function sendStdin(_sessionId: string, _input: string): Promise<void> {
   // Interactive browser stdin is intentionally disabled until Vercel exposes
   // a stable SDK PTY transport suitable for reconnecting serverless requests.
 }
 
-export async function resizePTY(): Promise<void> {
+export async function resizePTY(_sessionId: string, _cols: number, _rows: number): Promise<void> {
   // No-op for the non-PTY Vercel Sandbox transport.
 }
 
