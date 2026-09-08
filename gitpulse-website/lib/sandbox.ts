@@ -112,7 +112,7 @@ async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
       '  GO_VERSION=1.26.3',
       '  GO_TARBALL="/vercel/sandbox/go${GO_VERSION}.linux-${GOARCH}.tar.gz"',
       '  GO_URL="https://go.dev/dl/go${GO_VERSION}.linux-${GOARCH}.tar.gz"',
-      '  node -e "const fs=require(\"fs\");fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error(\"download failed: \"+r.status);return r.arrayBuffer()}).then(b=>fs.writeFileSync(process.argv[2],Buffer.from(b))).catch(e=>{console.error(e);process.exit(1)})" "$GO_URL" "$GO_TARBALL"',
+      "  node -e 'const fs=require(\"fs\");fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error(\"download failed: \"+r.status);return r.arrayBuffer()}).then(b=>fs.writeFileSync(process.argv[2],Buffer.from(b))).catch(e=>{console.error(e);process.exit(1)})' \"$GO_URL\" \"$GO_TARBALL\"",
       '  rm -rf /vercel/sandbox/go',
       '  mkdir -p /vercel/sandbox/go',
       '  tar -xzf "$GO_TARBALL" -C /vercel/sandbox/go --strip-components=1',
@@ -133,7 +133,7 @@ async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
       'git init --bare /vercel/sandbox/fake-origin.git',
       'git remote add origin /vercel/sandbox/fake-origin.git',
       'git push -u origin main',
-    ].join(' && '),
+    ].join('\n'),
   ]);
 }
 export async function createSandboxSession(
