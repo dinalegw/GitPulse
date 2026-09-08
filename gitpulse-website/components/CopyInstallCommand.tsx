@@ -13,8 +13,8 @@ interface CopyInstallCommandProps {
 
 export function CopyInstallCommand({
   command = 'git clone https://github.com/dinalegw/GitPulse.git && cd GitPulse && chmod +x scripts/bootstrap.sh && ./scripts/bootstrap.sh',
-  label = 'Copy install command',
-  variant = 'primary',
+  label = 'Copy developer install',
+  variant = 'secondary',
 }: CopyInstallCommandProps) {
   const [copied, setCopied] = useState(false);
 
@@ -29,26 +29,16 @@ export function CopyInstallCommand({
   };
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-col sm:flex-row items-center gap-3">
       <Button
         variant={variant}
         size="md"
         onClick={handleCopy}
-        aria-label={copied ? 'Copied to clipboard' : 'Copy to clipboard'}
+        aria-label={copied ? 'Copied to clipboard' : 'Copy developer install command'}
       >
-        {copied ? (
-          <>
-            <Check className="h-4 w-4" />
-            Copied!
-          </>
-        ) : (
-          <>
-            <Copy className="h-4 w-4" />
-            {label}
-          </>
-        )}
+        {copied ? <><Check className="h-4 w-4" /> Copied!</> : <><Copy className="h-4 w-4" /> {label}</>}
       </Button>
-      <code className="code-inline text-sm max-w-[300px] truncate block">{command}</code>
+      <code className="code-inline text-xs max-w-[420px] truncate block">{command}</code>
     </div>
   );
 }
