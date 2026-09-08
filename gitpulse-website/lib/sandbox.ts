@@ -101,17 +101,23 @@ async function runChecked(
 }
 
 async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
-  // Vercel's universal image includes Git. Install Go only when it is absent.
-  const goCheck = await sandbox.runCommand('bash', ['-lc', 'command -v go >/dev/null 2>&1']);
-  if (goCheck.exitCode !== 0) {
-    await runChecked(sandbox, 'apt-get', ['update'], { sudo: true });
-    await runChecked(sandbox, 'apt-get', ['install', '-y', 'golang-go'], { sudo: true });
-  }
-
+  // Avoid distro package managers: Vercel Sandbox images may not include apt-get.
+  // Bootstrap the pinned Go toolchain directly when Go is absent.
   await runChecked(sandbox, 'bash', [
     '-lc',
     [
       'set -euo pipefail',
+      'if ! command -v go >/dev/null 2>&1; then',
+      '  case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; *) echo "unsupported sandbox architecture: $(uname -m)" >&2; exit 1 ;; esac',
+      '  GO_VERSION=1.26.3',
+      '  GO_TARBALL="/vercel/sandbox/go${GO_VERSION}.linux-${GOARCH}.tar.gz"',
+      '  GO_URL="https://go.dev/dl/go${GO_VERSION}.linux-${GOARCH}.tar.gz"',
+      '  node -e "const fs=require(\"fs\");fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error(\"download failed: \"+r.status);return r.arrayBuffer()}).then(b=>fs.writeFileSync(process.argv[2],Buffer.from(b))).catch(e=>{console.error(e);process.exit(1)})" "$GO_URL" "$GO_TARBALL"',
+      '  rm -rf /vercel/sandbox/go',
+      '  mkdir -p /vercel/sandbox/go',
+      '  tar -xzf "$GO_TARBALL" -C /vercel/sandbox/go --strip-components=1',
+      'fi',
+      'export PATH="/vercel/sandbox/go/bin:$PATH"',
       `rm -rf "${SCRATCH_DIR}" /vercel/sandbox/fake-origin.git /vercel/sandbox/gitpulse-src "${BIN_DIR}"`,
       `mkdir -p "${SCRATCH_DIR}" "${BIN_DIR}"`,
       `git clone --depth 1 https://github.com/dinalegw/GitPulse.git /vercel/sandbox/gitpulse-src`,
@@ -130,7 +136,6 @@ async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
     ].join(' && '),
   ]);
 }
-
 export async function createSandboxSession(
   sessionId: string,
   command: string,
