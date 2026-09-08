@@ -226,7 +226,7 @@ export const DOCS_ONLY: CommandMeta[] = [
     description: 'Interactive quick-setup wizard (run `gitpulse` with no arguments)',
     longDescription: 'Running `gitpulse` with zero arguments launches an interactive wizard that walks through repository path, commit count, interval, and message. This is the flagship demo for the playground.',
     flags: [],
-    playground: { allowed: true, defaultArgs: [], requiresInteractive: true },
+    playground: { allowed: false, defaultArgs: [], requiresInteractive: true },
     sampleOutput: `Welcome to GitPulse Interactive Mode
 =====================================
 Developed by BLACKSAUCE
