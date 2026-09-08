@@ -2,38 +2,53 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import 'xterm/css/xterm.css';
 
+const SITE_URL = 'https://start-gitpulse.vercel.app';
+
 export const metadata: Metadata = {
-  metadataBase: new URL('https://gitpulse.dev'),
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: 'GitPulse — Automate scheduled Git commits',
+    default: 'GitPulse — Safe Git Repository Automation',
     template: '%s | GitPulse',
   },
-  description: 'GitPulse is a local-only CLI tool that automates scheduled Git commits on repositories you choose. Transparent, user-controlled, and 100% local — no external services, no telemetry.',
-  keywords: ['git', 'automation', 'cli', 'commits', 'schedule', 'github', 'gitlab', 'devops'],
+  description: 'GitPulse is a local-first, cross-platform CLI for scheduled Git repository automation with validation, dry runs, controlled commits, and push workflows.',
+  keywords: [
+    'git automation',
+    'git automation cli',
+    'git repository automation',
+    'go cli',
+    'golang',
+    'git scheduler',
+    'developer tools',
+    'workflow automation',
+    'repository automation',
+  ],
   authors: [{ name: 'BLACKSAUCE' }],
   creator: 'BLACKSAUCE',
   publisher: 'BLACKSAUCE',
   robots: 'index, follow',
+  alternates: {
+    canonical: SITE_URL,
+  },
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://gitpulse.dev',
+    url: SITE_URL,
     siteName: 'GitPulse',
-    title: 'GitPulse — Automate scheduled Git commits',
-    description: 'Local-only CLI tool for automating scheduled Git commits. Transparent, user-controlled, no external services.',
+    title: 'GitPulse — Safe Git Repository Automation',
+    description: 'Local-first Git automation with validation, scheduling, dry runs, and controlled push workflows.',
     images: [
       {
         url: '/og-image.svg',
         width: 1200,
         height: 630,
-        alt: 'GitPulse — Automate scheduled Git commits',
+        alt: 'GitPulse — Safe Git Repository Automation',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'GitPulse — Automate scheduled Git commits',
-    description: 'Local-only CLI tool for automating scheduled Git commits. Transparent, user-controlled, no external services.',
+    title: 'GitPulse — Safe Git Repository Automation',
+    description: 'Local-first Git automation with validation, scheduling, dry runs, and controlled push workflows.',
     images: ['/og-image.svg'],
   },
   icons: {

@@ -1,7 +1,7 @@
 {
   "name": "GitPulse",
   "short_name": "GitPulse",
-  "description": "Automate scheduled Git commits on repositories you choose. Transparent, user-controlled, and 100% local.",
+  "description": "Safe, cross-platform Git repository automation for developers.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0e14",
