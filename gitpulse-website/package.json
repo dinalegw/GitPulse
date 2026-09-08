@@ -11,8 +11,8 @@
     "test": "node --test tests/playground-state.test.mjs tests/audit-log.test.mjs tests/run-store.test.mjs"
   },
   "dependencies": {
-    "@e2b/code-interpreter": "^1.1.0",
     "@vercel/kv": "^3.0.0",
+    "@vercel/sandbox": "^3.2.1",
     "lucide-react": "^0.454.0",
     "next": "15.0.7",
     "react": "^18.3.1",
