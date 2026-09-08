@@ -80,7 +80,7 @@ function statusLabel(state: PlaygroundState): string {
 
 function PlaygroundContent() {
   const searchParams = useSearchParams();
-  const [selectedCommand, setSelectedCommand] = useState<string>('quick-wizard');
+  const [selectedCommand, setSelectedCommand] = useState<string>('run');
   const [args, setArgs] = useState<string>('');
   const [state, setState] = useState<PlaygroundState>('DISPOSED');
   const [error, setError] = useState<string | null>(null);
@@ -109,8 +109,8 @@ function PlaygroundContent() {
         return;
       }
     }
-    setSelectedCommand('quick-wizard');
-    const defaultCmd = COMMAND_OPTIONS.find((c) => c.value === 'quick-wizard');
+    setSelectedCommand('run');
+    const defaultCmd = COMMAND_OPTIONS.find((c) => c.value === 'run');
     if (defaultCmd) {
       setArgs(defaultCmd.defaultArgs.join(' '));
       setIsInteractive(defaultCmd.requiresInteractive || false);
@@ -367,7 +367,7 @@ function PlaygroundContent() {
                   Select Command
                 </CardTitle>
                 <CardDescription>
-                  Choose a GitPulse command to run. The interactive wizard ({'gitpulse'}) is the flagship demo.
+                  Choose a GitPulse command to run safely inside a disposable Vercel Sandbox.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -511,12 +511,12 @@ function PlaygroundContent() {
                 <div className="text-sm text-text-muted">
                   <p className="font-medium text-amber-300 mb-1">Disposable Sandbox Notice</p>
                   <p>
-                    This terminal runs in an ephemeral E2B microVM with a scratch Git repository.
+                    This terminal runs in an ephemeral Vercel Sandbox microVM with a scratch Git repository.
                     A local bare repo serves as &ldquo;origin&rdquo; &mdash; no real GitHub credentials or network egress.
                     Each Run / Run Again creates a brand-new sandbox; previous sessions are disposed.
                   </p>
                   <p className="mt-2 text-xs text-text-muted/80">
-                    Resource limits: CPU/memory enforced by E2B; execution time capped at 60s; output size limited by the streaming connection.
+                    Resource limits: isolated sandbox compute with execution time capped by the playground configuration.
                   </p>
                 </div>
               </CardContent>
@@ -540,7 +540,7 @@ function PlaygroundContent() {
       <footer className="py-8 border-t border-border-subtle">
         <div className="section-container text-center text-sm text-text-muted">
           <p>
-            Powered by <a href="https://e2b.dev" target="_blank" rel="noopener noreferrer" className="link">E2B</a> sandboxes ·
+            Powered by <a href="https://vercel.com/docs/vercel-sandbox" target="_blank" rel="noopener noreferrer" className="link">Vercel Sandbox</a> ·
             <a href="https://github.com/dinalegw/GitPulse" target="_blank" rel="noopener noreferrer" className="link">GitPulse source</a>
           </p>
         </div>
