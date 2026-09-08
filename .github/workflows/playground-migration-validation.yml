@@ -1,0 +1,47 @@
+name: Playground migration validation
+
+on:
+  push:
+    branches:
+      - fix/vercel-sandbox-playground
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gitpulse-website
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/vercel-sandbox-playground
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: gitpulse-website/package-lock.json
+      - name: Regenerate lockfile
+        run: npm install --package-lock-only
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Commit regenerated lockfile
+        working-directory: .
+        run: |
+          if git diff --quiet -- gitpulse-website/package-lock.json; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gitpulse-website/package-lock.json
+          git commit -m "build(playground): refresh npm lockfile"
+          git push origin HEAD:fix/vercel-sandbox-playground
