@@ -4,6 +4,7 @@
 // the playground remains usable without making optional storage mandatory.
 
 import { kv } from '@vercel/kv';
+import { withOptionalStorageTimeout } from './optional-storage';
 
 function positiveInteger(raw: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(raw || '', 10);
@@ -103,7 +104,10 @@ export async function checkRateLimit(ip: string): Promise<RateLimitResult> {
     pipeline.incr(hourKey);
     pipeline.expire(minuteKey, 60);
     pipeline.expire(hourKey, 3_600);
-    const results = await pipeline.exec();
+    const results = await withOptionalStorageTimeout(
+      pipeline.exec(),
+      'rate-limit pipeline'
+    );
 
     const minuteCount = results[0] as number;
     const hourCount = results[1] as number;
