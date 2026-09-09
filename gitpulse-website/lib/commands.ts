@@ -33,7 +33,7 @@ export const COMMANDS: CommandMeta[] = [
       { name: '--branch', description: 'Remote branch name (default: main)', type: 'string' },
       { name: '--commits', description: 'Commits per day (default: 4)', type: 'number' },
       { name: '--enabled', description: 'Enable automation immediately (default: false)', type: 'boolean' },
-      { name: '--dry-run', description: 'Simulate initialization without writing config', type: 'boolean' },
+      { name: '--dry-run', description: 'Initialize with dry_run enabled so later runs are simulated', type: 'boolean' },
       { name: '--no-detect', description: 'Skip auto-detection of Git repository', type: 'boolean' },
     ],
     playground: { allowed: true, defaultArgs: ['--dry-run'] },

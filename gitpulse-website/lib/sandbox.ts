@@ -29,6 +29,7 @@ const MAX_SESSION_SECONDS = boundedInteger(
   240
 );
 const CREATE_TIMEOUT_MS = 20_000;
+const CLEANUP_TIMEOUT_MS = 10_000;
 const SANDBOX_TIMEOUT_MS = Math.min(285_000, (MAX_SESSION_SECONDS + 30) * 1000);
 
 const GO_SHA256: Record<'amd64' | 'arm64', string> = {
@@ -284,7 +285,10 @@ async function setupGitPulseSource(
   }
 }
 
-async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
+async function setupScratchRepo(
+  sandbox: Sandbox,
+  command: string
+): Promise<void> {
   if (!(await commandAvailable(sandbox, 'git', ['--version']))) {
     throw new Error('Vercel Sandbox image does not provide git');
   }
@@ -361,6 +365,32 @@ async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
   if (remote !== FAKE_ORIGIN) {
     throw new Error('Scratch repository origin is not the disposable local bare repository');
   }
+
+  // Seed every non-init command with a valid sandbox-local GitPulse config.
+  // The execution remains disposable and dry-run by default.
+  if (command !== 'init') {
+    const configDir = `${SANDBOX_HOME}/.gitpulse`;
+    const configPath = `${configDir}/config.yaml`;
+    await runChecked(sandbox, 'mkdir', ['-p', configDir], { env: SAFE_ENV });
+
+    const config = [
+      'enabled: false',
+      `repository_path: "${SCRATCH_DIR}"`,
+      'remote_branch: "main"',
+      'commits_per_day: 2',
+      'dry_run: true',
+      'push_remote: "origin"',
+      '',
+    ].join('\n');
+
+    await sandbox.writeFiles([
+      {
+        path: configPath,
+        content: Buffer.from(config, 'utf8'),
+      },
+    ]);
+  }
+
 }
 
 async function createSandbox(): Promise<Sandbox> {
@@ -384,7 +414,13 @@ async function createSandbox(): Promise<Sandbox> {
   } catch (error) {
     if (error instanceof PlaygroundTimeoutError) {
       void pending
-        .then((lateSandbox) => lateSandbox.delete())
+        .then((lateSandbox) =>
+          withTimeout(
+            lateSandbox.delete(),
+            CLEANUP_TIMEOUT_MS,
+            'Late sandbox cleanup timed out'
+          )
+        )
         .catch((cleanupError) => {
           console.error('[Sandbox] Late sandbox cleanup failed:', cleanupError);
         });
@@ -427,7 +463,7 @@ export async function runSandboxCommand(
     try {
       result = await withTimeout(
         (async () => {
-          await setupScratchRepo(sandbox!);
+          await setupScratchRepo(sandbox!, command);
           await onReady?.();
           executionStarted = true;
 
@@ -483,7 +519,11 @@ export async function runSandboxCommand(
   } finally {
     if (sandbox) {
       try {
-        await sandbox.delete();
+        await withTimeout(
+          sandbox.delete(),
+          CLEANUP_TIMEOUT_MS,
+          'Sandbox cleanup timed out'
+        );
       } catch (cleanupError) {
         result.cleanupError =
           cleanupError instanceof Error
