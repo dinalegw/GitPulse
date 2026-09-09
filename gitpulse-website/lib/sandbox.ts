@@ -504,6 +504,28 @@ async function resetSnapshotScratchRepo(
   }
 }
 
+async function prepareCommandFixture(
+  sandbox: Sandbox,
+  command: string
+): Promise<void> {
+  if (command !== 'logs') return;
+
+  // Each playground execution uses a brand-new disposable sandbox. The logs
+  // command is intentionally read-only and therefore has no historical log
+  // file unless another GitPulse command ran first. Prime it with a genuine
+  // dry-run cycle so the displayed entries are produced by GitPulse itself
+  // without creating commits or contacting a real remote.
+  await runChecked(
+    sandbox,
+    GITPULSE_BIN,
+    ['run', '--dry-run', '--count', '2'],
+    {
+      cwd: SCRATCH_DIR,
+      env: SAFE_ENV,
+    }
+  );
+}
+
 async function createSandbox(): Promise<{ sandbox: Sandbox; usedSnapshot: boolean }> {
   const usedSnapshot = Boolean(PLAYGROUND_RUNTIME.snapshotId);
   const options = usedSnapshot
@@ -672,6 +694,9 @@ export async function runSandboxCommand(
             await setupFreshSandbox(sandbox!, command);
           }
           timings.scratchRepoMs = performance.now() - scratchStarted;
+
+          hooks.onProgress?.('fixture', 'Preparing command fixture…');
+          await prepareCommandFixture(sandbox!, command);
 
           await hooks.onReady?.();
           executionStarted = true;
