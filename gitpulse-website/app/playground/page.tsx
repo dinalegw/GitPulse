@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 import dynamicImport from 'next/dynamic';
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useTerminal } from '@/components/Terminal';
+import { createNdjsonParser } from '@/lib/playground-stream';
 import { Button } from '@/components/ui/Button';
 import {
   Card,
@@ -50,7 +50,7 @@ const Terminal = dynamicImport(
         style={{ minHeight: '300px' }}
       >
         <div className="terminal-titlebar">
-          <div className="terminal-dots">
+          <div className="terminal-dots" aria-hidden="true">
             <span className="terminal-dot terminal-dot-red" />
             <span className="terminal-dot terminal-dot-yellow" />
             <span className="terminal-dot terminal-dot-green" />
@@ -80,6 +80,29 @@ interface PlaygroundResponse {
   exitCode?: number;
   error?: string;
   cleanupWarning?: string;
+}
+
+interface PlaygroundTimings {
+  validationMs?: number;
+  rateLimitMs?: number;
+  claimMs?: number;
+  sandboxCreateMs?: number;
+  runtimeVerifyMs?: number;
+  scratchRepoMs?: number;
+  executionMs?: number;
+  cleanupMs?: number;
+  totalMs?: number;
+  totalServerMs?: number;
+  usedSnapshot?: boolean;
+}
+
+interface PlaygroundStreamEvent extends PlaygroundResponse {
+  type: 'state' | 'progress' | 'stdout' | 'stderr' | 'error' | 'result';
+  data?: string;
+  message?: string;
+  stage?: string;
+  cleanupState?: PlaygroundState;
+  timings?: PlaygroundTimings;
 }
 
 const COMMAND_OPTIONS: PlaygroundCommandOption[] = PLAYGROUND_COMMANDS.map((cmd) => ({
@@ -190,9 +213,13 @@ function PlaygroundContent() {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [output, setOutput] = useState<string>('');
+  const [progressMessage, setProgressMessage] = useState<string | null>(null);
+  const [timings, setTimings] = useState<PlaygroundTimings | null>(null);
   const idempotencyKeyRef = useRef<string>(newIdempotencyKey());
   const requestInFlightRef = useRef(false);
-  const terminal = useTerminal();
+  const outputRef = useRef('');
+  const streamedStdoutRef = useRef('');
+  const streamedStderrRef = useRef('');
 
   useEffect(() => {
     const cmdParam = searchParams.get('cmd');
@@ -207,10 +234,27 @@ function PlaygroundContent() {
     setArgs(argsParam ?? validCmd.defaultArgs.join(' '));
   }, [searchParams]);
 
+  const replaceOutput = (value: string) => {
+    outputRef.current = value;
+    setOutput(value);
+  };
+
+  const appendOutput = (value: string) => {
+    if (!value) return;
+    outputRef.current += value;
+    setOutput(outputRef.current);
+  };
+
   const handleCommandChange = (value: string) => {
     const next = COMMAND_OPTIONS.find((cmd) => cmd.value === value);
     setSelectedCommand(value);
     setArgs(next?.defaultArgs.join(' ') ?? '');
+    replaceOutput('');
+    setError(null);
+    setProgressMessage(null);
+    setTimings(null);
+    setSessionId(null);
+    setState('DISPOSED');
   };
 
   const handleRun = async (freshExecution = false) => {
@@ -222,8 +266,10 @@ function PlaygroundContent() {
     }
 
     setError(null);
-    setOutput('');
-    terminal.clear();
+    setProgressMessage('Starting request…');
+    setTimings(null);
+    streamedStdoutRef.current = '';
+    streamedStderrRef.current = '';
 
     const newSessionId = `session_${Date.now()}_${Math.random()
       .toString(36)
@@ -238,9 +284,15 @@ function PlaygroundContent() {
       setError(
         parseError instanceof Error ? parseError.message : 'Invalid arguments'
       );
+      setProgressMessage(null);
       requestInFlightRef.current = false;
       return;
     }
+
+    const commandLine = `$ gitpulse ${selectedCommand}${
+      parsedArgs.length ? ` ${parsedArgs.join(' ')}` : ''
+    }\n\n`;
+    replaceOutput(commandLine);
 
     try {
       setState('QUEUED');
@@ -256,37 +308,124 @@ function PlaygroundContent() {
         }),
       });
 
-      let data: PlaygroundResponse;
-      try {
-        data = (await response.json()) as PlaygroundResponse;
-      } catch {
-        throw new Error(`Playground returned HTTP ${response.status} without JSON`);
-      }
-
-      const nextState =
-        data.state ?? (response.ok ? ('SUCCEEDED' as PlaygroundState) : 'FAILED');
-      setState(nextState);
-
-      const combinedOutput = [data.output, data.stderr]
-        .filter((value): value is string => Boolean(value))
-        .join('\n');
-      setOutput(combinedOutput);
-      if (combinedOutput) terminal.write(combinedOutput);
-
-      if (!response.ok || nextState !== 'SUCCEEDED') {
+      const contentType = response.headers.get('content-type') || '';
+      if (!response.ok || !contentType.includes('application/x-ndjson')) {
+        let data: PlaygroundResponse = {};
+        try {
+          data = (await response.json()) as PlaygroundResponse;
+        } catch {
+          throw new Error(
+            `Playground returned HTTP ${response.status} without a valid response`
+          );
+        }
         const message =
           data.error ||
           data.cleanupWarning ||
-          (typeof data.exitCode === 'number'
-            ? `Command exited with code ${data.exitCode}`
-            : `Playground request failed with HTTP ${response.status}`);
+          `Playground request failed with HTTP ${response.status}`;
+        setState(data.state ?? 'FAILED');
         setError(message);
-      } else if (data.cleanupWarning) {
-        setState('CLEANUP_FAILED');
-        setError(`Command succeeded, but sandbox cleanup failed: ${data.cleanupWarning}`);
+        setProgressMessage(null);
+        return;
+      }
+
+      if (!response.body) {
+        throw new Error('Playground response stream is unavailable');
+      }
+
+      const decoder = new TextDecoder();
+      let finalResultSeen = false;
+
+      const parser = createNdjsonParser((rawEvent: unknown) => {
+        const event = rawEvent as PlaygroundStreamEvent;
+
+        if (event.type === 'state' && event.state) {
+          setState(event.state);
+          return;
+        }
+
+        if (event.type === 'progress') {
+          if (event.message) setProgressMessage(event.message);
+          return;
+        }
+
+        if (event.type === 'stdout' && typeof event.data === 'string') {
+          streamedStdoutRef.current += event.data;
+          appendOutput(event.data);
+          return;
+        }
+
+        if (event.type === 'stderr' && typeof event.data === 'string') {
+          streamedStderrRef.current += event.data;
+          appendOutput(event.data);
+          return;
+        }
+
+        if (event.type === 'error') {
+          if (event.message) setError(event.message);
+          return;
+        }
+
+        if (event.type === 'result') {
+          finalResultSeen = true;
+          setTimings(event.timings ?? null);
+          setProgressMessage(null);
+
+          if (
+            event.output &&
+            event.output.startsWith(streamedStdoutRef.current)
+          ) {
+            appendOutput(event.output.slice(streamedStdoutRef.current.length));
+            streamedStdoutRef.current = event.output;
+          }
+          if (
+            event.stderr &&
+            event.stderr.startsWith(streamedStderrRef.current)
+          ) {
+            appendOutput(event.stderr.slice(streamedStderrRef.current.length));
+            streamedStderrRef.current = event.stderr;
+          }
+
+          const finalState =
+            event.cleanupWarning || event.cleanupState === 'CLEANUP_FAILED'
+              ? 'CLEANUP_FAILED'
+              : event.resultState ?? event.state ?? 'FAILED';
+          setState(finalState);
+
+          if (event.cleanupWarning) {
+            setError(
+              `Command ${event.resultState === 'SUCCEEDED' ? 'succeeded' : 'finished'}, but sandbox cleanup failed: ${event.cleanupWarning}`
+            );
+          } else if (
+            event.resultState &&
+            event.resultState !== 'SUCCEEDED'
+          ) {
+            setError(
+              event.error ||
+                (typeof event.exitCode === 'number'
+                  ? `Command exited with code ${event.exitCode}`
+                  : 'Playground command failed')
+            );
+          } else {
+            setError(null);
+          }
+        }
+      });
+
+      const reader = response.body.getReader();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        parser.push(decoder.decode(value, { stream: true }));
+      }
+      parser.push(decoder.decode());
+      parser.finish();
+
+      if (!finalResultSeen) {
+        throw new Error('Playground stream ended before the final result');
       }
     } catch (requestError) {
       setState((current) => (isActive(current) ? 'FAILED' : current));
+      setProgressMessage(null);
       setError(
         requestError instanceof Error ? requestError.message : 'Unknown error'
       );
@@ -296,9 +435,11 @@ function PlaygroundContent() {
   };
 
   const handleClear = () => {
-    terminal.clear();
-    setOutput('');
+    replaceOutput('');
+    streamedStdoutRef.current = '';
+    streamedStderrRef.current = '';
     setError(null);
+    setTimings(null);
   };
 
   const handleRunAgain = () => {
@@ -318,7 +459,7 @@ function PlaygroundContent() {
     ) {
       return (
         <>
-          <Loader2 className="h-5 w-5 animate-spin" />
+          <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />
           {statusLabel(state)}…
         </>
       );
@@ -335,7 +476,7 @@ function PlaygroundContent() {
     ) {
       return (
         <>
-          <TerminalIcon className="h-5 w-5" />
+          <TerminalIcon aria-hidden="true" className="h-5 w-5" />
           Run Again
         </>
       );
@@ -343,7 +484,7 @@ function PlaygroundContent() {
 
     return (
       <>
-        <TerminalIcon className="h-5 w-5" />
+        <TerminalIcon aria-hidden="true" className="h-5 w-5" />
         Run
       </>
     );
@@ -381,7 +522,7 @@ function PlaygroundContent() {
               >
                 Home
               </Link>
-              <TerminalIcon className="h-4 w-4" />
+              <TerminalIcon aria-hidden="true" className="h-4 w-4" />
               <span className="font-mono text-text-primary">Playground</span>
             </nav>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -404,7 +545,7 @@ function PlaygroundContent() {
             <Card className="mb-6">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <TerminalIcon className="h-5 w-5 text-accent-primary" />
+                  <TerminalIcon aria-hidden="true" className="h-5 w-5 text-accent-primary" />
                   Select Command
                 </CardTitle>
                 <CardDescription>
@@ -474,8 +615,10 @@ function PlaygroundContent() {
               state === 'CLEANUP') && (
               <Card className="mb-6 border-accent-primary/30 bg-accent-primary/5">
                 <CardContent className="flex items-center gap-3 text-accent-primary">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span className="font-medium">{statusLabel(state)}</span>
+                  <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />
+                  <span className="font-medium">
+                    {progressMessage || statusLabel(state)}
+                  </span>
                 </CardContent>
               </Card>
             )}
@@ -483,7 +626,7 @@ function PlaygroundContent() {
             {state === 'TIMED_OUT' && (
               <Card className="mb-6 border-amber-500/30 bg-amber-500/5">
                 <CardContent className="flex items-center gap-3 text-amber-300">
-                  <Timer className="h-5 w-5" />
+                  <Timer aria-hidden="true" className="h-5 w-5" />
                   <span>
                     Sandbox execution exceeded the maximum time. The session was
                     disposed. Click Run Again for a fresh sandbox.
@@ -495,7 +638,7 @@ function PlaygroundContent() {
             {state === 'CANCELLED' && (
               <Card className="mb-6 border-zinc-500/30 bg-zinc-500/5">
                 <CardContent className="flex items-center gap-3 text-zinc-300">
-                  <Ban className="h-5 w-5" />
+                  <Ban aria-hidden="true" className="h-5 w-5" />
                   <span>Execution was cancelled and the sandbox was disposed.</span>
                 </CardContent>
               </Card>
@@ -504,7 +647,7 @@ function PlaygroundContent() {
             {error && (
               <Card className="mb-6 border-red-500/30 bg-red-500/5">
                 <CardContent className="flex items-center gap-3 text-red-400">
-                  <XCircle className="h-5 w-5" />
+                  <XCircle aria-hidden="true" className="h-5 w-5" />
                   <span>{error}</span>
                 </CardContent>
               </Card>
@@ -513,9 +656,14 @@ function PlaygroundContent() {
             {state === 'SUCCEEDED' && !error && (
               <Card className="mb-6 border-accent-primary/30 bg-accent-primary/5">
                 <CardContent className="flex items-center gap-3 text-accent-primary">
-                  <CheckCircle className="h-5 w-5" />
+                  <CheckCircle aria-hidden="true" className="h-5 w-5" />
                   <span className="font-medium">
                     Command completed successfully
+                    {typeof timings?.totalServerMs === 'number' && (
+                      <span className="ml-2 text-sm font-normal text-text-muted">
+                        {(timings.totalServerMs / 1000).toFixed(1)}s · sandbox disposed
+                      </span>
+                    )}
                   </span>
                 </CardContent>
               </Card>
@@ -525,7 +673,7 @@ function PlaygroundContent() {
               <CardHeader className="flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
-                    <TerminalIcon className="h-5 w-5 text-accent-primary" />
+                    <TerminalIcon aria-hidden="true" className="h-5 w-5 text-accent-primary" />
                     Terminal Output
                   </CardTitle>
                   <div className="flex items-center gap-2 text-xs text-text-muted">
@@ -548,7 +696,7 @@ function PlaygroundContent() {
               <CardContent className="flex-1 p-0 min-h-0">
                 <Terminal
                   readOnly
-                  onReady={terminal.setTerminal}
+                  output={output}
                   className="h-full"
                 />
               </CardContent>
@@ -556,7 +704,7 @@ function PlaygroundContent() {
 
             <Card className="mt-6 border-amber-500/30 bg-amber-500/5">
               <CardContent className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <AlertCircle className="h-5 w-5 text-amber-400 flex-shrink-0" />
+                <AlertCircle aria-hidden="true" className="h-5 w-5 text-amber-400 flex-shrink-0" />
                 <div className="text-sm text-text-muted">
                   <p className="font-medium text-amber-300 mb-1">
                     Disposable Sandbox Notice
@@ -639,7 +787,7 @@ export default function PlaygroundPage() {
                   >
                     Home
                   </Link>
-                  <TerminalIcon className="h-4 w-4" />
+                  <TerminalIcon aria-hidden="true" className="h-4 w-4" />
                   <span className="font-mono text-text-primary">Playground</span>
                 </nav>
                 <h1 className="heading-1 font-mono mb-2">
@@ -654,7 +802,7 @@ export default function PlaygroundPage() {
                 <Card className="h-[500px] lg:h-[600px] flex flex-col overflow-hidden">
                   <CardHeader className="flex-shrink-0">
                     <CardTitle className="flex items-center gap-2">
-                      <TerminalIcon className="h-5 w-5 text-accent-primary" />
+                      <TerminalIcon aria-hidden="true" className="h-5 w-5 text-accent-primary" />
                       Terminal Output
                     </CardTitle>
                   </CardHeader>
@@ -664,7 +812,7 @@ export default function PlaygroundPage() {
                       style={{ height: '100%', minHeight: '460px' }}
                     >
                       <div className="terminal-titlebar">
-                        <div className="terminal-dots">
+                        <div className="terminal-dots" aria-hidden="true">
                           <span className="terminal-dot terminal-dot-red" />
                           <span className="terminal-dot terminal-dot-yellow" />
                           <span className="terminal-dot terminal-dot-green" />
