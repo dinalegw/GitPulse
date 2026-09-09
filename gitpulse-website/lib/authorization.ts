@@ -14,7 +14,6 @@
 // is.
 
 import { readSessionCookie } from './github-oauth';
-import { loadSession } from './session-store';
 import {
   entitlementsFor,
   hasFeature,
@@ -45,9 +44,7 @@ export const ANONYMOUS_CONTEXT: AuthorizationContext = {
 // without throwing. Use it when the route must adapt to anonymous users
 // (e.g. the playground can be used without sign-in).
 export async function getAuthorization(): Promise<AuthorizationContext> {
-  const sessionId = await readSessionCookie();
-  if (!sessionId) return ANONYMOUS_CONTEXT;
-  const session = await loadSession(sessionId);
+  const session = await readSessionCookie();
   if (!session) return ANONYMOUS_CONTEXT;
   const planId: PlanId = isPlanId(process.env.DEFAULT_PLAN_ID) ? process.env.DEFAULT_PLAN_ID : 'free';
   return {
