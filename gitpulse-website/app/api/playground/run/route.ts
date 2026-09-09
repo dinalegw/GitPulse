@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runSandboxCommand, validateCommand } from '@/lib/sandbox';
+import { validatePlaygroundRequestBody } from '@/lib/playground-policy';
 import { checkRateLimit, getRateLimitHeaders } from '@/lib/rate-limit';
 import { getClientIP } from '@/lib/utils';
-import {
-  createRun,
-  findRunByIdempotencyKey,
-  transitionState,
-} from '@/lib/run-store';
+import { claimRun, transitionState } from '@/lib/run-store';
 import { appendAuditEvent } from '@/lib/audit-log';
 import type { PlaygroundState } from '@/lib/playground-state';
 
@@ -29,21 +26,26 @@ export async function POST(request: NextRequest) {
   }
 
   let runId: string | null = null;
+  let commandForAudit: string | undefined;
   let enteredRunning = false;
 
   try {
     const body = await request.json();
-    const { sessionId, command, args, idempotencyKey } = body;
-
-    if (!sessionId || !command || !idempotencyKey) {
+    const requestValidation = validatePlaygroundRequestBody(body);
+    if (!requestValidation.valid) {
       return NextResponse.json(
-        { error: 'Missing required fields: sessionId, command, idempotencyKey' },
+        { error: requestValidation.error, state: 'FAILED' as PlaygroundState },
         { status: 400, headers: getRateLimitHeaders(rateLimit) }
       );
     }
 
-    const safeArgs = Array.isArray(args) ? args.map((a: unknown) => String(a)) : [];
-    const validation = validateCommand(String(command), safeArgs);
+    const sessionId = body.sessionId as string;
+    const command = body.command as string;
+    const safeArgs = body.args as string[];
+    const idempotencyKey = body.idempotencyKey as string;
+    commandForAudit = command;
+
+    const validation = validateCommand(command, safeArgs);
     if (!validation.valid) {
       return NextResponse.json(
         { error: validation.error, state: 'FAILED' as PlaygroundState },
@@ -51,95 +53,112 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const existing = await findRunByIdempotencyKey(
-      String(command),
-      safeArgs,
-      String(idempotencyKey)
-    );
-    if (existing) {
+    const claim = await claimRun({
+      sessionId,
+      command,
+      args: safeArgs,
+      idempotencyKey,
+      ip,
+    });
+    runId = claim.run.runId;
+
+    if (!claim.created) {
       return NextResponse.json(
         {
           error: 'This run request was already accepted. Use Run Again for a fresh execution.',
-          runId: existing.runId,
-          state: existing.state,
+          runId,
+          state: claim.run.state,
           replay: true,
         },
         { status: 409, headers: getRateLimitHeaders(rateLimit) }
       );
     }
 
-    const run = await createRun({
-      sessionId: String(sessionId),
-      command: String(command),
-      args: safeArgs,
-      idempotencyKey: String(idempotencyKey),
-      ip,
-    });
-    runId = run.runId;
-
     await appendAuditEvent({
       type: 'playground_run_created',
       ip,
       userAgent,
-      command: String(command),
+      command,
       runId,
     });
 
     await transitionState(runId, 'STARTING');
 
-    const result = await runSandboxCommand(
-      String(command),
-      safeArgs,
-      async () => {
-        enteredRunning = true;
-        await transitionState(runId!, 'RUNNING');
-      }
-    );
+    const result = await runSandboxCommand(command, safeArgs, async () => {
+      enteredRunning = true;
+      await transitionState(runId!, 'RUNNING');
+    });
 
-    const finalState: PlaygroundState =
-      result.exitCode === 0 ? 'SUCCEEDED' : 'FAILED';
+    let outcomeState: PlaygroundState = result.state;
+    if (outcomeState === 'START_FAILED' && enteredRunning) {
+      outcomeState = 'FAILED';
+    }
 
-    await transitionState(runId, finalState, { exitCode: result.exitCode });
+    await transitionState(runId, outcomeState, { exitCode: result.exitCode });
     await transitionState(runId, 'CLEANUP');
 
+    let responseState: PlaygroundState = outcomeState;
     if (result.cleanupError) {
       await transitionState(runId, 'CLEANUP_FAILED', {
         errorMessage: result.cleanupError,
       });
+      responseState = 'CLEANUP_FAILED';
       await appendAuditEvent({
         type: 'playground_cleanup_failed',
         ip,
-        command: String(command),
+        command,
         runId,
         message: result.cleanupError,
       });
-      await transitionState(runId, 'DISPOSED');
-    } else {
-      await transitionState(runId, 'DISPOSED');
     }
+
+    await transitionState(runId, 'DISPOSED');
 
     await appendAuditEvent({
       type: 'playground_run_completed',
       ip,
-      command: String(command),
+      command,
       runId,
       metadata: {
-        exitCode: result.exitCode,
+        resultState: outcomeState,
+        exitCode: result.exitCode ?? null,
         cleanupFailed: Boolean(result.cleanupError),
       },
     });
 
-    return NextResponse.json(
-      {
-        runId,
-        state: finalState,
-        exitCode: result.exitCode,
-        output: result.stdout,
-        stderr: result.stderr,
-        cleanupWarning: result.cleanupError,
-      },
-      { headers: getRateLimitHeaders(rateLimit) }
-    );
+    const payload = {
+      runId,
+      state: responseState,
+      lifecycleState: 'DISPOSED' as PlaygroundState,
+      resultState: outcomeState,
+      exitCode: result.exitCode,
+      output: result.stdout,
+      stderr: result.stderr,
+      error: result.error,
+      cleanupWarning: result.cleanupError,
+    };
+
+    if (responseState === 'TIMED_OUT') {
+      return NextResponse.json(payload, {
+        status: 504,
+        headers: getRateLimitHeaders(rateLimit),
+      });
+    }
+
+    if (
+      responseState === 'START_FAILED' ||
+      responseState === 'CLEANUP_FAILED' ||
+      (responseState === 'FAILED' && result.exitCode === undefined)
+    ) {
+      return NextResponse.json(payload, {
+        status: 500,
+        headers: getRateLimitHeaders(rateLimit),
+      });
+    }
+
+    return NextResponse.json(payload, {
+      headers: getRateLimitHeaders(rateLimit),
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Internal server error';
@@ -159,7 +178,7 @@ export async function POST(request: NextRequest) {
           ? 'playground_run_failed'
           : 'playground_run_start_failed',
         ip,
-        command: undefined,
+        command: commandForAudit,
         runId,
         message,
       });
@@ -170,6 +189,7 @@ export async function POST(request: NextRequest) {
         error: message,
         runId,
         state: (enteredRunning ? 'FAILED' : 'START_FAILED') as PlaygroundState,
+        lifecycleState: runId ? ('DISPOSED' as PlaygroundState) : undefined,
       },
       { status: 500, headers: getRateLimitHeaders(rateLimit) }
     );

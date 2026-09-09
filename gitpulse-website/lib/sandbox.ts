@@ -1,6 +1,7 @@
 import { Sandbox } from '@vercel/sandbox';
+import { PLAYGROUND_COMMANDS, CONFIG_KEYS } from './commands';
+import { validatePlaygroundCommand } from './playground-policy';
 
-const MAX_SESSION_SECONDS = parseInt(process.env.PLAYGROUND_MAX_SECONDS || '60', 10);
 const SCRATCH_DIR = '/vercel/sandbox/scratch-repo';
 const SOURCE_DIR = '/vercel/sandbox/gitpulse-src';
 const BIN_DIR = '/vercel/sandbox/bin';
@@ -10,15 +11,54 @@ const FAKE_ORIGIN = '/vercel/sandbox/fake-origin.git';
 const GO_ROOT = '/vercel/sandbox/go';
 const GO_VERSION = '1.26.3';
 
+function boundedInteger(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  const parsed = Number.parseInt(raw || '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+const MAX_SESSION_SECONDS = boundedInteger(
+  process.env.PLAYGROUND_MAX_SECONDS,
+  60,
+  30,
+  240
+);
+const CREATE_TIMEOUT_MS = 20_000;
+const SANDBOX_TIMEOUT_MS = Math.min(285_000, (MAX_SESSION_SECONDS + 30) * 1000);
+
 const GO_SHA256: Record<'amd64' | 'arm64', string> = {
   amd64: '2b2cfc7148493da5e73981bffbf3353af381d5f93e789c82c79aff64962eb556',
   arm64: '9d89a3ea57d141c2b22d70083f2c8459ba3890f2d9e818e7e933b75614936565',
 };
 
+const SAFE_ENV: Record<string, string> = {
+  HOME: SANDBOX_HOME,
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_TERMINAL_PROMPT: '0',
+  GCM_INTERACTIVE: 'Never',
+  GH_TOKEN: '',
+  GITHUB_TOKEN: '',
+  GIT_ASKPASS: '',
+};
+
+export type SandboxResultState =
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'START_FAILED'
+  | 'TIMED_OUT';
+
 export interface SandboxCommandResult {
-  exitCode: number;
+  state: SandboxResultState;
+  exitCode?: number;
   stdout: string;
   stderr: string;
+  error?: string;
   cleanupError?: string;
 }
 
@@ -27,6 +67,31 @@ type RunOptions = {
   env?: Record<string, string>;
   sudo?: boolean;
 };
+
+class PlaygroundTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlaygroundTimeoutError';
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  milliseconds: number,
+  message: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new PlaygroundTimeoutError(message)), milliseconds);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 async function runCommand(
   sandbox: Sandbox,
@@ -81,6 +146,16 @@ async function commandAvailable(
   }
 }
 
+async function assertNoGitHubCredentials(sandbox: Sandbox): Promise<void> {
+  const script = [
+    'const names=["GH_TOKEN","GITHUB_TOKEN","GIT_ASKPASS"];',
+    'const leaked=names.filter((name)=>Boolean(process.env[name]));',
+    'if(leaked.length){console.error("credential environment present: "+leaked.join(","));process.exit(1)}',
+  ].join('');
+
+  await runChecked(sandbox, 'node', ['-e', script], { env: SAFE_ENV });
+}
+
 async function ensureGo(sandbox: Sandbox): Promise<string> {
   if (await commandAvailable(sandbox, 'go', ['version'])) {
     return 'go';
@@ -124,7 +199,13 @@ async function ensureGo(sandbox: Sandbox): Promise<string> {
   await runChecked(sandbox, 'node', ['-e', downloader, url, tarball, expectedSha]);
   await runChecked(sandbox, 'rm', ['-rf', GO_ROOT]);
   await runChecked(sandbox, 'mkdir', ['-p', GO_ROOT]);
-  await runChecked(sandbox, 'tar', ['-xzf', tarball, '-C', GO_ROOT, '--strip-components=1']);
+  await runChecked(sandbox, 'tar', [
+    '-xzf',
+    tarball,
+    '-C',
+    GO_ROOT,
+    '--strip-components=1',
+  ]);
 
   const goBin = `${GO_ROOT}/bin/go`;
   if (!(await commandAvailable(sandbox, goBin, ['version']))) {
@@ -133,12 +214,83 @@ async function ensureGo(sandbox: Sandbox): Promise<string> {
   return goBin;
 }
 
+function sourceRef(): string {
+  const candidate =
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.GITPULSE_PLAYGROUND_SOURCE_REF ||
+    'main';
+
+  if (!/^[A-Za-z0-9._/-]{1,100}$/.test(candidate)) {
+    return 'main';
+  }
+  return candidate;
+}
+
+async function setupGitPulseSource(
+  sandbox: Sandbox,
+  goBin: string
+): Promise<void> {
+  await runChecked(sandbox, 'git', ['init', SOURCE_DIR], { env: SAFE_ENV });
+  await runChecked(
+    sandbox,
+    'git',
+    [
+      '-c',
+      'credential.helper=',
+      '-c',
+      'core.askPass=',
+      '-C',
+      SOURCE_DIR,
+      'remote',
+      'add',
+      'origin',
+      'https://github.com/dinalegw/GitPulse.git',
+    ],
+    { env: SAFE_ENV }
+  );
+
+  await runChecked(
+    sandbox,
+    'git',
+    [
+      '-c',
+      'credential.helper=',
+      '-c',
+      'core.askPass=',
+      '-C',
+      SOURCE_DIR,
+      'fetch',
+      '--depth',
+      '1',
+      'origin',
+      sourceRef(),
+    ],
+    { env: SAFE_ENV }
+  );
+
+  await runChecked(sandbox, 'git', ['-C', SOURCE_DIR, 'checkout', '--detach', 'FETCH_HEAD'], {
+    env: SAFE_ENV,
+  });
+
+  await runChecked(
+    sandbox,
+    goBin,
+    ['build', '-trimpath', '-o', GITPULSE_BIN, '.'],
+    { cwd: SOURCE_DIR, env: SAFE_ENV }
+  );
+
+  if (!(await commandAvailable(sandbox, GITPULSE_BIN, ['version']))) {
+    throw new Error('GitPulse build completed but the executable is unavailable');
+  }
+}
+
 async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
   if (!(await commandAvailable(sandbox, 'git', ['--version']))) {
     throw new Error('Vercel Sandbox image does not provide git');
   }
-
-  const goBin = await ensureGo(sandbox);
+  if (!(await commandAvailable(sandbox, 'node', ['--version']))) {
+    throw new Error('Vercel Sandbox image does not provide Node.js');
+  }
 
   await runChecked(sandbox, 'rm', [
     '-rf',
@@ -150,34 +302,26 @@ async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
   ]);
   await runChecked(sandbox, 'mkdir', ['-p', SCRATCH_DIR, BIN_DIR, SANDBOX_HOME]);
 
-  await runChecked(sandbox, 'git', [
-    'clone',
-    '--depth',
-    '1',
-    'https://github.com/dinalegw/GitPulse.git',
-    SOURCE_DIR,
-  ]);
+  await assertNoGitHubCredentials(sandbox);
+  const goBin = await ensureGo(sandbox);
+  await setupGitPulseSource(sandbox, goBin);
 
-  await runChecked(
-    sandbox,
-    goBin,
-    ['build', '-trimpath', '-o', GITPULSE_BIN, '.'],
-    { cwd: SOURCE_DIR }
-  );
-
-  await runChecked(sandbox, 'git', ['init'], { cwd: SCRATCH_DIR });
-  await runChecked(sandbox, 'git', ['branch', '-M', 'main'], { cwd: SCRATCH_DIR });
+  await runChecked(sandbox, 'git', ['init'], { cwd: SCRATCH_DIR, env: SAFE_ENV });
+  await runChecked(sandbox, 'git', ['branch', '-M', 'main'], {
+    cwd: SCRATCH_DIR,
+    env: SAFE_ENV,
+  });
   await runChecked(
     sandbox,
     'git',
     ['config', 'user.email', 'playground@gitpulse.local'],
-    { cwd: SCRATCH_DIR }
+    { cwd: SCRATCH_DIR, env: SAFE_ENV }
   );
   await runChecked(
     sandbox,
     'git',
     ['config', 'user.name', 'GitPulse Playground'],
-    { cwd: SCRATCH_DIR }
+    { cwd: SCRATCH_DIR, env: SAFE_ENV }
   );
 
   await sandbox.writeFiles([
@@ -187,16 +331,66 @@ async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
     },
   ]);
 
-  await runChecked(sandbox, 'git', ['add', 'README.md'], { cwd: SCRATCH_DIR });
-  await runChecked(sandbox, 'git', ['commit', '-m', 'Initial commit'], { cwd: SCRATCH_DIR });
+  await runChecked(sandbox, 'git', ['add', 'README.md'], {
+    cwd: SCRATCH_DIR,
+    env: SAFE_ENV,
+  });
+  await runChecked(sandbox, 'git', ['commit', '-m', 'Initial commit'], {
+    cwd: SCRATCH_DIR,
+    env: SAFE_ENV,
+  });
 
-  await runChecked(sandbox, 'git', ['init', '--bare', FAKE_ORIGIN]);
+  await runChecked(sandbox, 'git', ['init', '--bare', FAKE_ORIGIN], {
+    env: SAFE_ENV,
+  });
   await runChecked(sandbox, 'git', ['remote', 'add', 'origin', FAKE_ORIGIN], {
     cwd: SCRATCH_DIR,
+    env: SAFE_ENV,
   });
   await runChecked(sandbox, 'git', ['push', '-u', 'origin', 'main'], {
     cwd: SCRATCH_DIR,
+    env: SAFE_ENV,
   });
+
+  const remote = (
+    await runChecked(sandbox, 'git', ['remote', 'get-url', 'origin'], {
+      cwd: SCRATCH_DIR,
+      env: SAFE_ENV,
+    })
+  ).trim();
+  if (remote !== FAKE_ORIGIN) {
+    throw new Error('Scratch repository origin is not the disposable local bare repository');
+  }
+}
+
+async function createSandbox(): Promise<Sandbox> {
+  const pending = Sandbox.create({
+    runtime: 'node24',
+    persistent: false,
+    timeout: SANDBOX_TIMEOUT_MS,
+    env: SAFE_ENV,
+    tags: {
+      app: 'gitpulse',
+      purpose: 'playground',
+    },
+  });
+
+  try {
+    return await withTimeout(
+      pending,
+      CREATE_TIMEOUT_MS,
+      'Vercel Sandbox creation timed out'
+    );
+  } catch (error) {
+    if (error instanceof PlaygroundTimeoutError) {
+      void pending
+        .then((lateSandbox) => lateSandbox.delete())
+        .catch((cleanupError) => {
+          console.error('[Sandbox] Late sandbox cleanup failed:', cleanupError);
+        });
+    }
+    throw error;
+  }
 }
 
 export async function runSandboxCommand(
@@ -205,128 +399,114 @@ export async function runSandboxCommand(
   onReady?: () => Promise<void> | void
 ): Promise<SandboxCommandResult> {
   let sandbox: Sandbox | null = null;
-  let response: SandboxCommandResult | null = null;
-  let primaryError: unknown;
+  let executionStarted = false;
+  let result: SandboxCommandResult = {
+    state: 'START_FAILED',
+    stdout: '',
+    stderr: '',
+  };
 
   try {
-    sandbox = await Sandbox.create({
-      runtime: 'node24',
-      persistent: false,
-      timeout: Math.max(MAX_SESSION_SECONDS, 180) * 1000,
-      env: {
-        HOME: SANDBOX_HOME,
-        GIT_CONFIG_NOSYSTEM: '1',
-      },
-      tags: {
-        app: 'gitpulse',
-        purpose: 'playground',
-      },
-    });
+    try {
+      sandbox = await createSandbox();
+    } catch (error) {
+      result = {
+        state:
+          error instanceof PlaygroundTimeoutError
+            ? 'TIMED_OUT'
+            : executionStarted
+              ? 'FAILED'
+              : 'START_FAILED',
+        stdout: '',
+        stderr: '',
+        error: error instanceof Error ? error.message : String(error),
+      };
+      return result;
+    }
 
-    await setupScratchRepo(sandbox);
-    await onReady?.();
+    try {
+      result = await withTimeout(
+        (async () => {
+          await setupScratchRepo(sandbox!);
+          await onReady?.();
+          executionStarted = true;
 
-    const result = await runCommand(sandbox, GITPULSE_BIN, [command, ...args], {
-      cwd: SCRATCH_DIR,
-      env: {
-        HOME: SANDBOX_HOME,
-        GIT_CONFIG_NOSYSTEM: '1',
-      },
-    });
+          let commandResult;
+          try {
+            commandResult = await runCommand(
+              sandbox!,
+              GITPULSE_BIN,
+              [command, ...args],
+              {
+                cwd: SCRATCH_DIR,
+                env: SAFE_ENV,
+              }
+            );
+          } catch (error) {
+            return {
+              state: 'FAILED' as const,
+              stdout: '',
+              stderr: '',
+              error:
+                error instanceof Error
+                  ? `GitPulse command could not start: ${error.message}`
+                  : 'GitPulse command could not start',
+            };
+          }
 
-    response = {
-      exitCode: result.exitCode,
-      stdout: await result.stdout(),
-      stderr: await result.stderr(),
-    };
-  } catch (error) {
-    primaryError = error;
+          const stdout = await commandResult.stdout();
+          const stderr = await commandResult.stderr();
+
+          return {
+            state: commandResult.exitCode === 0 ? ('SUCCEEDED' as const) : ('FAILED' as const),
+            exitCode: commandResult.exitCode,
+            stdout,
+            stderr,
+            error:
+              commandResult.exitCode === 0
+                ? undefined
+                : stderr.trim() || `GitPulse exited with code ${commandResult.exitCode}`,
+          };
+        })(),
+        MAX_SESSION_SECONDS * 1000,
+        `Playground execution exceeded ${MAX_SESSION_SECONDS} seconds`
+      );
+    } catch (error) {
+      result = {
+        state:
+          error instanceof PlaygroundTimeoutError ? 'TIMED_OUT' : 'START_FAILED',
+        stdout: '',
+        stderr: '',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   } finally {
     if (sandbox) {
       try {
-        await sandbox.stop();
+        await sandbox.delete();
       } catch (cleanupError) {
-        const message =
-          cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
-        if (response) {
-          response.cleanupError = message;
-        } else {
-          console.error('[Sandbox] Cleanup failed after primary error:', message);
-        }
+        result.cleanupError =
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError);
       }
     }
   }
 
-  if (primaryError) {
-    throw primaryError;
-  }
-  if (!response) {
-    throw new Error('Sandbox command produced no result');
-  }
-  return response;
+  return result;
 }
 
-export function validateCommand(command: string, args: string[]): { valid: boolean; error?: string } {
-  const { PLAYGROUND_COMMANDS, CONFIG_KEYS } = require('./commands');
-
-  const cmdMeta = PLAYGROUND_COMMANDS.find((c: { name: string }) => c.name === command);
-  if (!cmdMeta) {
-    return { valid: false, error: `Command '${command}' not allowed in playground` };
-  }
-
-  const allowedFlags = new Set(
-    cmdMeta.flags.map((f: { name: string }) => f.name.split(' ')[0])
+export function validateCommand(
+  command: string,
+  args: string[]
+): { valid: boolean; error?: string } {
+  return validatePlaygroundCommand(
+    command,
+    args,
+    PLAYGROUND_COMMANDS,
+    CONFIG_KEYS,
+    SCRATCH_DIR
   );
-
-  for (const arg of args) {
-    if (arg.startsWith('--') || arg.startsWith('-')) {
-      const flagName = arg.split('=')[0];
-      if (!allowedFlags.has(flagName)) {
-        return {
-          valid: false,
-          error: `Flag '${flagName}' not allowed for '${command}' in playground`,
-        };
-      }
-    }
-  }
-
-  if (command === 'run') {
-    if (args.includes('--schedule') || args.includes('--daemon')) {
-      return {
-        valid: false,
-        error: 'Scheduled/daemon mode is disabled in the disposable playground',
-      };
-    }
-
-    const countIndex = args.indexOf('--count');
-    if (countIndex >= 0) {
-      const rawCount = args[countIndex + 1];
-      const count = Number(rawCount);
-      if (!Number.isInteger(count) || count < 1 || count > 5) {
-        return {
-          valid: false,
-          error: 'Playground --count must be an integer between 1 and 5',
-        };
-      }
-    }
-  }
-
-  if (command === 'logs' && args.includes('--tail')) {
-    return {
-      valid: false,
-      error: 'Streaming --tail mode is disabled in the disposable playground',
-    };
-  }
-
-  if (command === 'config' && args.includes('set')) {
-    const setIndex = args.indexOf('set');
-    if (setIndex + 1 < args.length) {
-      const key = args[setIndex + 1];
-      if (!CONFIG_KEYS.includes(key as any)) {
-        return { valid: false, error: `Invalid config key: ${key}` };
-      }
-    }
-  }
-
-  return { valid: true };
 }
+
+export { MAX_SESSION_SECONDS };

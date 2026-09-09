@@ -1,10 +1,11 @@
 // Run record store. Tracks every playground execution with an explicit
 // state machine. Two responsibilities:
 //
-//   1. Idempotency. A double-clicked Run / Run Again with the same
-//      client-provided idempotency key returns the SAME execution id and
-//      never spins up two sandboxes. This is the core defense against
-//      "user clicked twice".
+//   1. Idempotency. A repeated request with the same client-provided
+//      idempotency key returns the same execution id. The in-memory claim
+//      is atomic within one server instance; optional KV extends history
+//      across instances. The frontend also has a synchronous in-flight
+//      click guard so normal double-clicks never create two requests.
 //
 //   2. Visibility. The frontend can fetch the current state of any
 //      execution by id. The state machine guarantees there are no
@@ -19,7 +20,7 @@ import { canTransition, isTerminal } from './playground-state';
 
 const KV_RUN_PREFIX = 'playground:run:';
 const KV_IDEMP_PREFIX = 'playground:idemp:';
-const RUN_TTL_SECONDS = 60 * 60 * 2; // 2 hours, matches max session window
+const RUN_TTL_SECONDS = 60 * 60 * 2; // retain run history for 2 hours
 
 export interface PlaygroundRun {
   runId: string;
@@ -83,6 +84,68 @@ export async function findRunByIdempotencyKey(
   const runId = memory.idemp.get(normalized);
   if (!runId) return null;
   return memory.runs.get(runId) ?? null;
+}
+
+export async function claimRun(input: {
+  sessionId: string;
+  command: string;
+  args: string[];
+  idempotencyKey: string;
+  ip?: string;
+}): Promise<{ run: PlaygroundRun; created: boolean }> {
+  const existing = await findRunByIdempotencyKey(
+    input.command,
+    input.args,
+    input.idempotencyKey
+  );
+  if (existing) return { run: existing, created: false };
+
+  const normalized = normalizeIdempotencyKey(
+    input.command,
+    input.args,
+    input.idempotencyKey
+  );
+
+  // Re-check and claim synchronously after the async lookup. This closes
+  // the same-instance race where two requests both observed a cache miss.
+  const claimedRunId = memory.idemp.get(normalized);
+  if (claimedRunId) {
+    const claimed = memory.runs.get(claimedRunId);
+    if (claimed) return { run: claimed, created: false };
+  }
+
+  const runId = randomRunId();
+  const now = Date.now();
+  const run: PlaygroundRun = {
+    runId,
+    sessionId: input.sessionId,
+    idempotencyKey: input.idempotencyKey,
+    command: input.command,
+    args: input.args,
+    state: 'QUEUED',
+    stateHistory: [{ state: 'QUEUED', at: now }],
+    createdAt: now,
+    updatedAt: now,
+    ip: input.ip,
+  };
+
+  memory.idemp.set(normalized, runId);
+  memory.runs.set(runId, run);
+
+  if (kvAvailable()) {
+    try {
+      await kv.set(`${KV_IDEMP_PREFIX}${normalized}`, runId, {
+        ex: RUN_TTL_SECONDS,
+      });
+      await kv.set(`${KV_RUN_PREFIX}${runId}`, JSON.stringify(run), {
+        ex: RUN_TTL_SECONDS,
+      });
+    } catch (error) {
+      console.warn('[runs] KV claim persistence failed; continuing in memory:', error);
+    }
+  }
+
+  return { run, created: true };
 }
 
 export async function createRun(input: {
@@ -159,9 +222,10 @@ export async function transitionState(runId: string, to: PlaygroundState, meta?:
   return run;
 }
 
-// cleanupStuckRuns finds runs whose state is non-terminal but whose
-// updatedAt is older than maxAgeMs and forces them through CLEANUP -> DISPOSED.
-// This is the orphan-sandbox sweeper. Idempotent.
+// cleanupStuckRuns repairs stale run metadata whose state is non-terminal.
+// Sandbox resources are not looked up here: one-shot execution owns and
+// deletes its sandbox directly, and the Vercel sandbox timeout is a final
+// infrastructure backstop. Idempotent.
 export async function cleanupStuckRuns(maxAgeMs: number): Promise<number> {
   const cutoff = Date.now() - maxAgeMs;
   let cleaned = 0;

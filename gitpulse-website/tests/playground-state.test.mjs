@@ -16,7 +16,7 @@ const PLAYGROUND_STATES = [
 
 const ALLOWED = {
   QUEUED: ['STARTING', 'START_FAILED'],
-  STARTING: ['RUNNING', 'FAILED', 'CLEANUP', 'START_FAILED'],
+  STARTING: ['RUNNING', 'FAILED', 'TIMED_OUT', 'CLEANUP', 'START_FAILED'],
   RUNNING: ['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELLED', 'CLEANUP'],
   SUCCEEDED: ['CLEANUP'],
   FAILED: ['CLEANUP'],
@@ -63,7 +63,8 @@ test('start failure: STARTING -> START_FAILED -> CLEANUP -> DISPOSED', () => {
   assert.ok(canTransition('CLEANUP', 'DISPOSED'));
 });
 
-test('timeout path: RUNNING -> TIMED_OUT -> CLEANUP -> DISPOSED', () => {
+test('timeout paths cover startup and execution', () => {
+  assert.ok(canTransition('STARTING', 'TIMED_OUT'));
   assert.ok(canTransition('RUNNING', 'TIMED_OUT'));
   assert.ok(canTransition('TIMED_OUT', 'CLEANUP'));
 });
