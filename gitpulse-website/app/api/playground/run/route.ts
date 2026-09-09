@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     await transitionState(runId, outcomeState, { exitCode: result.exitCode });
     await transitionState(runId, 'CLEANUP');
 
-    let responseState = outcomeState;
+    let responseState: PlaygroundState = outcomeState;
     if (result.cleanupError) {
       await transitionState(runId, 'CLEANUP_FAILED', {
         errorMessage: result.cleanupError,
