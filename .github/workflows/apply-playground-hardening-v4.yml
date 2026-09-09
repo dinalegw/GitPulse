@@ -1,0 +1,53 @@
+name: Apply playground hardening v4
+
+on:
+  push:
+    branches: [audit/playground-production-hardening-20260909]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/playground-production-hardening-20260909
+      - name: Apply audited patch
+        run: python3 scripts/apply_playground_audit_fix.py
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: gitpulse-website/pnpm-lock.yaml
+      - name: Verify website
+        working-directory: gitpulse-website
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+          pnpm run lint
+          pnpm run test
+          pnpm run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify Go
+        run: |
+          go vet ./...
+          go test ./... -timeout 5m
+          go test -race ./... -timeout 5m
+          go build ./...
+      - name: Commit verified changes
+        run: |
+          git rm .github/workflows/apply-playground-hardening-v4.yml scripts/apply_playground_audit_fix.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gitpulse-website/lib/sandbox.ts gitpulse-website/lib/commands.ts gitpulse-website/tests/playground-sandbox-baseline.test.mjs
+          git commit -m "fix: provision valid playground baseline and bound cleanup"
+          git push origin HEAD:audit/playground-production-hardening-20260909
