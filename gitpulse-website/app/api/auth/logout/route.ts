@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   await clearSessionCookie();
   await appendAuditEvent({
     type: 'session_logout',
-    sessionPresent: Boolean(session),
+    sessionIdPresent: Boolean(session),
     actorUserId: session?.user.id,
     actorLogin: session?.user.login,
   });
