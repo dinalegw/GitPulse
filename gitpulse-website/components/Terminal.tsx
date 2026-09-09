@@ -1,10 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
-// Type for xterm Terminal - defined here to avoid importing xterm at top level
-// This allows useTerminal hook to work without SSR issues
 export interface XTermTerminalType {
   write: (data: string) => void;
   writeln: (data: string) => void;
@@ -15,12 +13,15 @@ export interface XTermTerminalType {
   rows: number;
   open: (element: HTMLElement) => void;
   onData: (callback: (data: string) => void) => { dispose: () => void };
-  onResize: (callback: (size: { cols: number; rows: number }) => void) => { dispose: () => void };
-  loadAddon: (addon: any) => void;
+  onResize: (callback: (size: { cols: number; rows: number }) => void) => {
+    dispose: () => void;
+  };
+  loadAddon: (addon: unknown) => void;
 }
 
 interface TerminalProps {
   className?: string;
+  output?: string;
   initialOutput?: string;
   readOnly?: boolean;
   onData?: (data: string) => void;
@@ -30,184 +31,231 @@ interface TerminalProps {
 
 export function Terminal({
   className,
+  output,
   initialOutput = '',
   readOnly = false,
   onData,
   onReady,
   onResize,
 }: TerminalProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const mountRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTermTerminalType | null>(null);
-  const fitAddonRef = useRef<any>(null);
-  const [isReady, setIsReady] = useState(false);
+  const renderedOutputRef = useRef('');
+  const outputRef = useRef(output ?? initialOutput);
+  const onDataRef = useRef(onData);
+  const onReadyRef = useRef(onReady);
+  const onResizeRef = useRef(onResize);
+  const readOnlyRef = useRef(readOnly);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const desiredOutput = output ?? initialOutput;
 
   useEffect(() => {
-    if (!containerRef.current || terminalRef.current) return;
+    outputRef.current = desiredOutput;
+    const term = terminalRef.current;
+    if (!term) return;
 
-    let handleResize: () => void;
+    const rendered = renderedOutputRef.current;
+    if (desiredOutput === rendered) return;
 
-    // Dynamically import xterm to avoid SSR issues
-    import('xterm').then(({ Terminal: XTermTerminal }) => {
-      import('xterm-addon-fit').then(({ FitAddon }) => {
-        import('xterm-addon-web-links').then(({ WebLinksAddon }) => {
-            // Create terminal instance
-            const term = new XTermTerminal({
-              cursorBlink: true,
-              fontFamily: 'Geist Mono, JetBrains Mono, Fira Code, monospace',
-              fontSize: 13,
-              lineHeight: 1.5,
-              letterSpacing: 0,
-              theme: {
-                background: '#0a0e14',
-                foreground: '#f9fafb',
-                cursor: '#22c55e',
-                cursorAccent: '#0a0e14',
-                black: '#1f2937',
-                red: '#ef4444',
-                green: '#22c55e',
-                yellow: '#fbbf24',
-                blue: '#3b82f6',
-                magenta: '#a855f7',
-                cyan: '#06b6d4',
-                white: '#e5e7eb',
-                brightBlack: '#374151',
-                brightRed: '#f87171',
-                brightGreen: '#4ade80',
-                brightYellow: '#fde047',
-                brightBlue: '#60a5fa',
-                brightMagenta: '#c084fc',
-                brightCyan: '#22d3ee',
-                brightWhite: '#f9fafb',
-              },
-              allowProposedApi: true,
-              convertEol: true,
-            });
+    if (desiredOutput.startsWith(rendered)) {
+      const delta = desiredOutput.slice(rendered.length);
+      if (delta) term.write(delta);
+    } else {
+      term.reset();
+      if (desiredOutput) term.write(desiredOutput);
+    }
+    renderedOutputRef.current = desiredOutput;
+  }, [desiredOutput]);
 
-            // Add fit addon
-            const fitAddon = new FitAddon();
-            term.loadAddon(fitAddon);
-            fitAddonRef.current = fitAddon;
+  useEffect(() => {
+    onDataRef.current = onData;
+  }, [onData]);
 
-            // Add web links addon
-            term.loadAddon(new WebLinksAddon());
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
 
-            // Open in container
-            term.open(containerRef.current!);
+  useEffect(() => {
+    onResizeRef.current = onResize;
+  }, [onResize]);
 
-            // Handle resize
-            handleResize = () => {
-              fitAddon.fit();
-              // Notify parent of resize for PTY synchronization
-              const t = terminalRef.current;
-              if (t && onResize) {
-                onResize(t.cols, t.rows);
-              }
-            };
+  useEffect(() => {
+    readOnlyRef.current = readOnly;
+  }, [readOnly]);
 
-            window.addEventListener('resize', handleResize);
+  useEffect(() => {
+    if (!mountRef.current || terminalRef.current) return;
+
+    let cancelled = false;
+    let handleWindowResize: (() => void) | undefined;
+    let dataDisposable: { dispose: () => void } | undefined;
+    let resizeDisposable: { dispose: () => void } | undefined;
+    let term: XTermTerminalType | null = null;
+
+    void Promise.all([
+      import('xterm'),
+      import('xterm-addon-fit'),
+      import('xterm-addon-web-links'),
+    ])
+      .then(([xtermModule, fitModule, linksModule]) => {
+        if (cancelled || !mountRef.current) return;
+
+        const XTermTerminal = xtermModule.Terminal;
+        const fitAddon = new fitModule.FitAddon();
+        const linksAddon = new linksModule.WebLinksAddon();
+
+        term = new XTermTerminal({
+          cursorBlink: !readOnlyRef.current,
+          fontFamily: 'Geist Mono, JetBrains Mono, Fira Code, monospace',
+          fontSize: 13,
+          lineHeight: 1.5,
+          letterSpacing: 0,
+          theme: {
+            background: '#0a0e14',
+            foreground: '#f9fafb',
+            cursor: '#22c55e',
+            cursorAccent: '#0a0e14',
+            black: '#1f2937',
+            red: '#ef4444',
+            green: '#22c55e',
+            yellow: '#fbbf24',
+            blue: '#3b82f6',
+            magenta: '#a855f7',
+            cyan: '#06b6d4',
+            white: '#e5e7eb',
+            brightBlack: '#374151',
+            brightRed: '#f87171',
+            brightGreen: '#4ade80',
+            brightYellow: '#fde047',
+            brightBlue: '#60a5fa',
+            brightMagenta: '#c084fc',
+            brightCyan: '#22d3ee',
+            brightWhite: '#f9fafb',
+          },
+          allowProposedApi: true,
+          convertEol: true,
+        }) as XTermTerminalType;
+
+        term.loadAddon(fitAddon);
+        term.loadAddon(linksAddon);
+        term.open(mountRef.current);
+
+        terminalRef.current = term;
+
+        const fit = () => {
+          if (cancelled || !terminalRef.current) return;
+          try {
             fitAddon.fit();
+          } catch {
+            return;
+          }
+          const current = terminalRef.current;
+          onResizeRef.current?.(current.cols, current.rows);
+        };
 
-            // Also listen to terminal's own resize events (e.g., from fitAddon)
-            term.onResize((size) => {
-              if (onResize) {
-                onResize(size.cols, size.rows);
-              }
-            });
+        handleWindowResize = fit;
+        window.addEventListener('resize', fit);
 
-            // Write initial output
-            if (initialOutput) {
-              term.write(initialOutput);
-            }
-
-            // Handle input if not read-only
-            if (!readOnly && onData) {
-              term.onData((data) => {
-                onData(data);
-              });
-            }
-
-            terminalRef.current = term;
-            setIsReady(true);
-            onReady?.(term);
+        resizeDisposable = term.onResize((size) => {
+          onResizeRef.current?.(size.cols, size.rows);
         });
+
+        if (!readOnlyRef.current) {
+          dataDisposable = term.onData((data) => {
+            onDataRef.current?.(data);
+          });
+        }
+
+        const initial = outputRef.current;
+        if (initial) term.write(initial);
+        renderedOutputRef.current = initial;
+
+        requestAnimationFrame(fit);
+        onReadyRef.current?.(term);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLoadError(
+            error instanceof Error ? error.message : 'Terminal failed to load'
+          );
+        }
       });
-    });
 
     return () => {
-      if (handleResize) {
-        window.removeEventListener('resize', handleResize);
+      cancelled = true;
+      if (handleWindowResize) {
+        window.removeEventListener('resize', handleWindowResize);
       }
-      terminalRef.current?.dispose();
+      dataDisposable?.dispose();
+      resizeDisposable?.dispose();
+      term?.dispose();
       terminalRef.current = null;
-      setIsReady(false);
+      renderedOutputRef.current = '';
     };
-  }, [initialOutput, readOnly, onData, onReady, onResize]);
-
-  // Public method to write to terminal
-  const write = (data: string) => {
-    terminalRef.current?.write(data);
-  };
-
-  // Public method to clear terminal
-  const clear = () => {
-    terminalRef.current?.clear();
-  };
-
-  // Public method to reset terminal
-  const reset = () => {
-    terminalRef.current?.reset();
-  };
+  }, []);
 
   return (
     <div
-      ref={containerRef}
-      className={cn(
-        'terminal-window',
-        'font-mono',
-        className
-      )}
+      className={cn('terminal-window', 'font-mono', className)}
       style={{ minHeight: '300px', height: '100%' }}
     >
       <div className="terminal-titlebar">
-        <div className="terminal-dots">
+        <div className="terminal-dots" aria-hidden="true">
           <span className="terminal-dot terminal-dot-red" />
           <span className="terminal-dot terminal-dot-yellow" />
           <span className="terminal-dot terminal-dot-green" />
         </div>
         <div className="terminal-title">gitpulse</div>
       </div>
-      <div
-        className="terminal-body"
-        id="terminal-body"
-        style={{ height: 'calc(100% - 40px)' }}
-      />
+
+      {loadError ? (
+        <pre
+          className="terminal-body overflow-auto whitespace-pre-wrap p-4 text-sm"
+          style={{ height: 'calc(100% - 40px)' }}
+          role="log"
+          aria-label="GitPulse terminal output"
+        >
+          {desiredOutput || `Terminal unavailable: ${loadError}`}
+        </pre>
+      ) : (
+        <div
+          ref={mountRef}
+          className="terminal-body"
+          style={{ height: 'calc(100% - 40px)' }}
+          aria-hidden="true"
+        />
+      )}
+
+      <pre className="sr-only" role="log" aria-live="polite" aria-label="GitPulse terminal output">
+        {desiredOutput}
+      </pre>
     </div>
   );
 }
 
-// Hook for using terminal methods - doesn't import xterm at top level
 export function useTerminal() {
   const terminalRef = useRef<XTermTerminalType | null>(null);
 
-  const setTerminal = (term: XTermTerminalType | null) => {
+  const setTerminal = useCallback((term: XTermTerminalType | null) => {
     terminalRef.current = term;
-  };
+  }, []);
 
-  const write = (data: string) => {
+  const write = useCallback((data: string) => {
     terminalRef.current?.write(data);
-  };
+  }, []);
 
-  const writeln = (data: string) => {
+  const writeln = useCallback((data: string) => {
     terminalRef.current?.writeln(data);
-  };
+  }, []);
 
-  const clear = () => {
+  const clear = useCallback(() => {
     terminalRef.current?.clear();
-  };
+  }, []);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     terminalRef.current?.reset();
-  };
+  }, []);
 
   return { terminal: terminalRef.current, write, writeln, clear, reset, setTerminal };
 }
