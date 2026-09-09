@@ -1,9 +1,23 @@
-// Rate limiting for playground API using Vercel KV (Upstash Redis)
+// Playground rate limiting.
+// Vercel KV provides distributed counters when configured. Without KV,
+// an in-memory fallback still limits bursts per warm server instance so
+// the playground remains usable without making optional storage mandatory.
 
 import { kv } from '@vercel/kv';
 
-const RATE_LIMIT_PER_MINUTE = parseInt(process.env.RATE_LIMIT_PER_MINUTE || '5', 10);
-const RATE_LIMIT_PER_HOUR = parseInt(process.env.RATE_LIMIT_PER_HOUR || '20', 10);
+function positiveInteger(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw || '', 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const RATE_LIMIT_PER_MINUTE = positiveInteger(
+  process.env.RATE_LIMIT_PER_MINUTE,
+  5
+);
+const RATE_LIMIT_PER_HOUR = positiveInteger(
+  process.env.RATE_LIMIT_PER_HOUR,
+  20
+);
 
 interface RateLimitResult {
   allowed: boolean;
@@ -12,61 +26,113 @@ interface RateLimitResult {
   limit: number;
 }
 
-/**
- * Check and increment rate limit for an IP
- */
+interface MemoryCounter {
+  count: number;
+  expiresAt: number;
+}
+
+type MemoryRateStore = Map<string, MemoryCounter>;
+const memory: MemoryRateStore =
+  (globalThis as { __gitpulseRateLimit?: MemoryRateStore })
+    .__gitpulseRateLimit ?? new Map();
+
+if (!(globalThis as { __gitpulseRateLimit?: MemoryRateStore }).__gitpulseRateLimit) {
+  (globalThis as { __gitpulseRateLimit?: MemoryRateStore }).__gitpulseRateLimit =
+    memory;
+}
+
+function kvAvailable(): boolean {
+  return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+}
+
+function incrementMemory(key: string, expiresAt: number, now: number): number {
+  const existing = memory.get(key);
+  if (!existing || existing.expiresAt <= now) {
+    memory.set(key, { count: 1, expiresAt });
+    return 1;
+  }
+  existing.count += 1;
+  return existing.count;
+}
+
+function inMemoryRateLimit(ip: string, now: number): RateLimitResult {
+  const minuteReset = (Math.floor(now / 60_000) + 1) * 60_000;
+  const hourReset = (Math.floor(now / 3_600_000) + 1) * 3_600_000;
+  const minuteKey = `minute:${ip}:${Math.floor(now / 60_000)}`;
+  const hourKey = `hour:${ip}:${Math.floor(now / 3_600_000)}`;
+
+  const minuteCount = incrementMemory(minuteKey, minuteReset, now);
+  const hourCount = incrementMemory(hourKey, hourReset, now);
+
+  // Opportunistically remove stale keys to keep a warm instance bounded.
+  if (memory.size > 2_000) {
+    for (const [key, value] of memory) {
+      if (value.expiresAt <= now) memory.delete(key);
+    }
+  }
+
+  return {
+    allowed:
+      minuteCount <= RATE_LIMIT_PER_MINUTE &&
+      hourCount <= RATE_LIMIT_PER_HOUR,
+    remaining: Math.max(
+      0,
+      Math.min(
+        RATE_LIMIT_PER_MINUTE - minuteCount,
+        RATE_LIMIT_PER_HOUR - hourCount
+      )
+    ),
+    resetTime: Math.min(minuteReset, hourReset),
+    limit: RATE_LIMIT_PER_MINUTE,
+  };
+}
+
 export async function checkRateLimit(ip: string): Promise<RateLimitResult> {
   const now = Date.now();
-  const minuteKey = `ratelimit:${ip}:${Math.floor(now / 60000)}`;
-  const hourKey = `ratelimit:${ip}:${Math.floor(now / 3600000)}`;
+
+  if (!kvAvailable()) {
+    return inMemoryRateLimit(ip, now);
+  }
+
+  const minuteKey = `ratelimit:${ip}:${Math.floor(now / 60_000)}`;
+  const hourKey = `ratelimit:${ip}:${Math.floor(now / 3_600_000)}`;
 
   try {
-    // Use pipeline for atomic operations
     const pipeline = kv.pipeline();
     pipeline.incr(minuteKey);
     pipeline.incr(hourKey);
     pipeline.expire(minuteKey, 60);
-    pipeline.expire(hourKey, 3600);
+    pipeline.expire(hourKey, 3_600);
     const results = await pipeline.exec();
 
     const minuteCount = results[0] as number;
     const hourCount = results[1] as number;
-
-    const minuteAllowed = minuteCount <= RATE_LIMIT_PER_MINUTE;
-    const hourAllowed = hourCount <= RATE_LIMIT_PER_HOUR;
-
-    const allowed = minuteAllowed && hourAllowed;
-    const remaining = Math.min(
-      RATE_LIMIT_PER_MINUTE - minuteCount,
-      RATE_LIMIT_PER_HOUR - hourCount
-    );
-
-    const minuteReset = (Math.floor(now / 60000) + 1) * 60000;
-    const hourReset = (Math.floor(now / 3600000) + 1) * 3600000;
-    const resetTime = Math.min(minuteReset, hourReset);
+    const minuteReset = (Math.floor(now / 60_000) + 1) * 60_000;
+    const hourReset = (Math.floor(now / 3_600_000) + 1) * 3_600_000;
 
     return {
-      allowed,
-      remaining: Math.max(0, remaining),
-      resetTime,
+      allowed:
+        minuteCount <= RATE_LIMIT_PER_MINUTE &&
+        hourCount <= RATE_LIMIT_PER_HOUR,
+      remaining: Math.max(
+        0,
+        Math.min(
+          RATE_LIMIT_PER_MINUTE - minuteCount,
+          RATE_LIMIT_PER_HOUR - hourCount
+        )
+      ),
+      resetTime: Math.min(minuteReset, hourReset),
       limit: RATE_LIMIT_PER_MINUTE,
     };
   } catch (error) {
-    // If KV is not available, allow the request (fail open)
-    console.warn('[RateLimit] KV unavailable, allowing request:', error);
-    return {
-      allowed: true,
-      remaining: RATE_LIMIT_PER_MINUTE,
-      resetTime: now + 60000,
-      limit: RATE_LIMIT_PER_MINUTE,
-    };
+    console.warn('[RateLimit] KV unavailable; using in-memory limiter:', error);
+    return inMemoryRateLimit(ip, now);
   }
 }
 
-/**
- * Get rate limit headers for response
- */
-export function getRateLimitHeaders(result: RateLimitResult): Record<string, string> {
+export function getRateLimitHeaders(
+  result: RateLimitResult
+): Record<string, string> {
   return {
     'X-RateLimit-Limit': result.limit.toString(),
     'X-RateLimit-Remaining': result.remaining.toString(),
