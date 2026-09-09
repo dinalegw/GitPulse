@@ -10,7 +10,7 @@ import { Github, AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
 interface MeResponse {
   authenticated: boolean;
   user?: { login: string; name: string | null; avatar_url: string };
-  scopes?: string[];
+  configured?: boolean;
   installationCount?: number;
 }
 
@@ -20,10 +20,12 @@ const ERROR_MESSAGES: Record<string, string> = {
   missing_state_cookie: 'Your sign-in session expired before GitHub redirected back. Please try again.',
   oauth_state_mismatch: 'The sign-in attempt did not pass our CSRF check. Please try again.',
   github_oauth_not_configured:
-    'GitHub sign-in is not yet configured for this deployment. The site operator must register a GitHub OAuth App and set GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and GITHUB_REDIRECT_URI.',
+    'GitHub sign-in is not configured yet. The site operator must register GitPulse as a GitHub App and set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in Vercel.',
   github_token_exchange_failed: 'GitHub did not accept the authorization code. Please try again.',
   github_token_exchange_rejected: 'GitHub rejected the authorization code. Please try again.',
   github_user_profile_failed: 'GitHub did not return your user profile. Please try again.',
+  github_installations_failed: 'GitHub sign-in succeeded, but GitPulse could not read the repositories/installations authorized for this GitHub App. Confirm the app is installed on at least one repository.',
+  oauth_login_failed: 'GitHub sign-in could not start. Please try again.',
   rate_limited: 'Too many sign-in attempts. Please wait a minute and try again.',
 };
 
@@ -93,8 +95,7 @@ function ConnectContent() {
                     Already signed in as {me.user.login}
                   </CardTitle>
                   <CardDescription>
-                    GitPulse has access to {me.installationCount ?? 0} GitHub installation(s) for your account.
-                    Scopes: {(me.scopes ?? []).join(', ') || '(none)'}.
+                    GitPulse is connected to {me.installationCount ?? 0} GitHub App installation(s) available to your account.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col sm:flex-row gap-3">
@@ -113,21 +114,29 @@ function ConnectContent() {
                     Sign in with GitHub
                   </CardTitle>
                   <CardDescription>
-                    GitPulse uses GitHub OAuth. We never ask for a personal access token or a password.
+                    GitPulse uses GitHub App authorization. We never ask for a personal access token or password.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <ul className="text-sm text-text-muted space-y-2 list-disc list-inside">
                     <li>You will be redirected to github.com to approve GitPulse.</li>
-                    <li>GitPulse requests only the scopes it needs: <code className="code-inline">read:user user:email repo</code>.</li>
-                    <li>The site stores only your GitHub user id, login, and avatar — never a token.</li>
+                    <li>Repository access is limited by the GitHub App permissions and the repositories you install it on.</li>
+                    <li>The GitHub user access token is used only during the callback and is never persisted.</li>
+                    <li>Your signed-in session is stored in an encrypted HttpOnly cookie, so GitHub connection does not depend on KV.</li>
                   </ul>
-                  <a href="/api/auth/login">
-                    <Button size="lg" className="w-full sm:w-auto">
-                      <Github className="h-5 w-5" />
-                      Connect GitHub
+                  {me?.configured === false ? (
+                    <Button size="lg" className="w-full sm:w-auto" disabled>
+                      <Github aria-hidden="true" className="h-5 w-5" />
+                      GitHub App not configured
                     </Button>
-                  </a>
+                  ) : (
+                    <a href="/api/auth/login">
+                      <Button size="lg" className="w-full sm:w-auto">
+                        <Github aria-hidden="true" className="h-5 w-5" />
+                        Connect GitHub
+                      </Button>
+                    </a>
+                  )}
                 </CardContent>
               </Card>
             )}

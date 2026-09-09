@@ -1,11 +1,22 @@
 'use client';
 
 import Link from 'next/link';
+import { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/Card';
 import { CheckCircle2, Github } from 'lucide-react';
 
-export default function ConnectSuccessPage() {
+function SuccessContent() {
+  const params = useSearchParams();
+  const installationCount = Number(params.get('installations') || '0');
+
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 py-12 lg:py-20">
@@ -14,17 +25,19 @@ export default function ConnectSuccessPage() {
             <Card className="border-accent-primary/30 bg-accent-primary/5">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-accent-primary" />
+                  <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-accent-primary" />
                   GitHub connected
                 </CardTitle>
                 <CardDescription>
-                  GitPulse now knows who you are. You can pick a repository on the next step.
+                  {installationCount > 0
+                    ? `GitPulse can see ${installationCount} GitHub App installation(s) authorized for your account.`
+                    : 'Your GitHub identity is connected, but the GitPulse GitHub App is not installed on any repositories available to this account yet.'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col sm:flex-row gap-3">
-                <Link href="/">
+                <Link href="/connect">
                   <Button>
-                    <Github className="h-5 w-5" />
+                    <Github aria-hidden="true" className="h-5 w-5" />
                     Continue
                   </Button>
                 </Link>
@@ -39,5 +52,13 @@ export default function ConnectSuccessPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function ConnectSuccessPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading…</div>}>
+      <SuccessContent />
+    </Suspense>
   );
 }

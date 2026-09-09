@@ -1,32 +1,33 @@
-// GitHub App / OAuth integration architecture.
+// GitHub App user-authorization integration.
 //
-// This module implements the GitHub OAuth authorization-code flow with the
-// minimum surface area required for production SaaS:
+// GitPulse uses a GitHub App, not a broad OAuth App. GitHub App user access
+// tokens are fine-grained to the intersection of:
+//   - repositories the GitHub App is installed on
+//   - permissions granted to the GitHub App
+//   - repositories the signed-in user can access
 //
-//   - PKCE state tokens (CSRF protection on the callback).
-//   - HTTP-only, Secure, SameSite=Lax session cookies.
-//   - Server-side token storage keyed by a random session id; the cookie
-//     carries only the id, never the token.
-//   - Disconnect flow that revokes the GitHub OAuth grant server-side
-//     and clears local session state.
+// Required production secrets:
+//   GITHUB_CLIENT_ID
+//   GITHUB_CLIENT_SECRET
 //
-// The implementation is *inert* until three environment variables are set:
-//
-//   GITHUB_CLIENT_ID      — OAuth App client id
-//   GITHUB_CLIENT_SECRET — OAuth App client secret
-//   GITHUB_REDIRECT_URI  — registered callback URL, e.g.
-//                          https://gitpulse.dev/api/auth/callback
-//
-// When any of those are missing, every function returns a structured
-// "github_oauth_not_configured" error so callers can render an actionable
-// page instead of silently misrouting users.
+// The OAuth callback URL is derived from the incoming request so preview and
+// production domains cannot silently drift from a hard-coded environment
+// variable. Register the production callback URL in the GitHub App settings.
 
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import {
+  randomBytes,
+  createHash,
+  createCipheriv,
+  createDecipheriv,
+  timingSafeEqual,
+} from 'node:crypto';
 import { cookies } from 'next/headers';
 
 export const SESSION_COOKIE = 'gitpulse_session';
 export const OAUTH_STATE_COOKIE = 'gitpulse_oauth_state';
-const SESSION_TTL_SECONDS = 60 * 60 * 8; // 8 hours
+const SESSION_TTL_SECONDS = 60 * 60 * 8;
+const SESSION_COOKIE_VERSION = 'v1';
+const GITHUB_API_VERSION = '2026-03-10';
 
 export class GitHubOAuthError extends Error {
   readonly code: string;
@@ -40,6 +41,11 @@ export class GitHubOAuthError extends Error {
 
 interface GitHubTokenResponse {
   access_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  refresh_token?: string;
+  refresh_token_expires_in?: number;
+  scope?: string;
   error?: string;
   error_description?: string;
 }
@@ -62,21 +68,32 @@ export interface AuthSession {
 }
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = process.env[name]?.trim();
   if (!value) {
     throw new GitHubOAuthError(
       'github_oauth_not_configured',
-      `${name} is not configured; set it in the deployment environment to enable GitHub sign-in`,
-      503,
+      `${name} is not configured; set the GitHub App credentials in the deployment environment`,
+      503
     );
   }
   return value;
 }
 
-// generateState creates a CSRF token and its PKCE verifier hash. We use the
-// plain state value directly — no separate verifier — because the OAuth App
-// authorization-code flow with confidential client does not require PKCE,
-// but we still bind the state to the session to prevent fixation.
+export function isGitHubOAuthConfigured(): boolean {
+  return Boolean(
+    process.env.GITHUB_CLIENT_ID?.trim() &&
+      process.env.GITHUB_CLIENT_SECRET?.trim()
+  );
+}
+
+function githubHeaders(accessToken: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': GITHUB_API_VERSION,
+  };
+}
+
 export function generateState(): { state: string; stateHash: string } {
   const state = randomBytes(32).toString('base64url');
   const stateHash = createHash('sha256').update(state).digest('base64url');
@@ -90,28 +107,35 @@ export function constantTimeEqual(a: string, b: string): boolean {
   return timingSafeEqual(aBuf, bBuf);
 }
 
-export function buildAuthorizeUrl(state: string): string {
+export function buildAuthorizeUrl(state: string, redirectUri: string): string {
   const clientId = requireEnv('GITHUB_CLIENT_ID');
-  const redirectUri = requireEnv('GITHUB_REDIRECT_URI');
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     state,
-    scope: 'read:user user:email repo',
     allow_signup: 'true',
   });
+  // GitHub App user access tokens do not use OAuth scopes. Permissions are
+  // configured on the GitHub App and narrowed by the user's installation.
   return `https://github.com/login/oauth/authorize?${params.toString()}`;
 }
 
-// exchangeCodeForToken exchanges the authorization code for an access token.
-// The token is returned to the caller; nothing is persisted here.
-export async function exchangeCodeForToken(code: string, state: string, expectedState: string): Promise<string> {
+export async function exchangeCodeForToken(
+  code: string,
+  state: string,
+  expectedState: string,
+  redirectUri: string
+): Promise<string> {
   if (!constantTimeEqual(state, expectedState)) {
-    throw new GitHubOAuthError('oauth_state_mismatch', 'OAuth state did not match; refusing to exchange code', 400);
+    throw new GitHubOAuthError(
+      'oauth_state_mismatch',
+      'OAuth state did not match; refusing to exchange code',
+      400
+    );
   }
+
   const clientId = requireEnv('GITHUB_CLIENT_ID');
   const clientSecret = requireEnv('GITHUB_CLIENT_SECRET');
-  const redirectUri = requireEnv('GITHUB_REDIRECT_URI');
 
   const response = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
@@ -125,13 +149,14 @@ export async function exchangeCodeForToken(code: string, state: string, expected
       code,
       redirect_uri: redirectUri,
     }).toString(),
+    cache: 'no-store',
   });
 
   if (!response.ok) {
     throw new GitHubOAuthError(
       'github_token_exchange_failed',
       `GitHub token endpoint returned ${response.status}`,
-      502,
+      502
     );
   }
 
@@ -139,38 +164,33 @@ export async function exchangeCodeForToken(code: string, state: string, expected
   if (payload.error || !payload.access_token) {
     throw new GitHubOAuthError(
       'github_token_exchange_rejected',
-      payload.error_description || payload.error || 'token exchange rejected',
-      400,
+      payload.error_description ||
+        payload.error ||
+        'GitHub rejected the authorization code',
+      400
     );
   }
+
   return payload.access_token;
 }
 
-// fetchUserIdentity reads the authenticated user's profile and email using
-// the supplied access token. The token is never persisted by this function.
-export async function fetchUserIdentity(accessToken: string): Promise<{ user: GitHubUserIdentity; scopes: string[] }> {
-  const [profileResponse, emailsResponse, scopesResponse] = await Promise.all([
-    fetch('https://api.github.com/user', {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github+json' },
-    }),
-    fetch('https://api.github.com/user/emails', {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github+json' },
-    }),
-    fetch('https://api.github.com/user', {
-      method: 'HEAD',
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github+json' },
-    }),
-  ]);
+export async function fetchUserIdentity(
+  accessToken: string
+): Promise<{ user: GitHubUserIdentity; scopes: string[] }> {
+  const response = await fetch('https://api.github.com/user', {
+    headers: githubHeaders(accessToken),
+    cache: 'no-store',
+  });
 
-  if (!profileResponse.ok) {
+  if (!response.ok) {
     throw new GitHubOAuthError(
       'github_user_profile_failed',
-      `GitHub /user returned ${profileResponse.status}`,
-      502,
+      `GitHub /user returned ${response.status}`,
+      502
     );
   }
 
-  const profile = (await profileResponse.json()) as {
+  const profile = (await response.json()) as {
     id: number;
     login: string;
     name: string | null;
@@ -178,51 +198,45 @@ export async function fetchUserIdentity(accessToken: string): Promise<{ user: Gi
     avatar_url: string;
   };
 
-  let primaryEmail = profile.email;
-  if (!primaryEmail && emailsResponse.ok) {
-    const emails = (await emailsResponse.json()) as Array<{ email: string; primary: boolean; visibility: string | null }>;
-    const primary = emails.find((e) => e.primary) ?? emails[0];
-    primaryEmail = primary?.email ?? null;
-  }
-
-  // The OAuth scopes are returned in the `x-oauth-scopes` header on
-  // authenticated GitHub API calls.
-  const scopeHeader = scopesResponse.headers.get('x-oauth-scopes') || '';
-  const scopes = scopeHeader.split(',').map((s) => s.trim()).filter(Boolean);
-
   return {
     user: {
       id: profile.id,
       login: profile.login,
       name: profile.name,
-      email: primaryEmail,
+      email: profile.email,
       avatar_url: profile.avatar_url,
     },
-    scopes,
+    // GitHub App user tokens are permission-based, not OAuth-scope based.
+    scopes: [],
   };
 }
 
-// listInstallations queries the authenticated user's GitHub App
-// installations so the UI can present a repository-picker scoped to only
-// repos the user has authorized GitPulse to access.
-export async function listInstallations(accessToken: string): Promise<Array<{ id: number; account: { login: string } }>> {
-  const response = await fetch('https://api.github.com/user/installations', {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github+json' },
+export async function listInstallations(
+  accessToken: string
+): Promise<Array<{ id: number; account: { login: string } }>> {
+  const response = await fetch('https://api.github.com/user/installations?per_page=100', {
+    headers: githubHeaders(accessToken),
+    cache: 'no-store',
   });
+
   if (!response.ok) {
+    const hint =
+      response.status === 403
+        ? ' GitPulse must be registered as a GitHub App; ordinary OAuth App tokens cannot list GitHub App installations.'
+        : '';
     throw new GitHubOAuthError(
       'github_installations_failed',
-      `GitHub /user/installations returned ${response.status}`,
-      502,
+      `GitHub /user/installations returned ${response.status}.${hint}`,
+      502
     );
   }
-  const payload = (await response.json()) as { installations: Array<{ id: number; account: { login: string } }> };
+
+  const payload = (await response.json()) as {
+    installations: Array<{ id: number; account: { login: string } }>;
+  };
   return payload.installations;
 }
 
-// revokeAccessToken asks GitHub to revoke the supplied access token. Best
-// effort: revocation failures do not block local session deletion, but we
-// still surface them in logs.
 export async function revokeAccessToken(accessToken: string): Promise<void> {
   const clientId = requireEnv('GITHUB_CLIENT_ID');
   const clientSecret = requireEnv('GITHUB_CLIENT_SECRET');
@@ -230,13 +244,17 @@ export async function revokeAccessToken(accessToken: string): Promise<void> {
     await fetch(`https://api.github.com/applications/${clientId}/token`, {
       method: 'DELETE',
       headers: {
-        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+        Authorization: `Basic ${Buffer.from(
+          `${clientId}:${clientSecret}`
+        ).toString('base64')}`,
         Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': GITHUB_API_VERSION,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({ access_token: accessToken }),
+      cache: 'no-store',
     });
   } catch (error) {
-    // Revocation failure should never block disconnect.
     console.warn('[auth] GitHub token revocation failed:', error);
   }
 }
@@ -267,11 +285,75 @@ export function buildOAuthStateCookieOptions(maxAgeSeconds = 600) {
   };
 }
 
-export async function setSessionCookie(sessionId: string) {
+function sessionEncryptionKey(): Buffer {
+  return createHash('sha256')
+    .update(requireEnv('GITHUB_CLIENT_SECRET'))
+    .digest();
+}
+
+export function encodeSessionCookie(session: AuthSession): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', sessionEncryptionKey(), iv);
+  const plaintext = Buffer.from(JSON.stringify(session), 'utf8');
+  const ciphertext = Buffer.concat([
+    cipher.update(plaintext),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+
+  return [
+    SESSION_COOKIE_VERSION,
+    iv.toString('base64url'),
+    ciphertext.toString('base64url'),
+    tag.toString('base64url'),
+  ].join('.');
+}
+
+export function decodeSessionCookie(value: string): AuthSession | null {
+  try {
+    const [version, ivRaw, ciphertextRaw, tagRaw] = value.split('.');
+    if (
+      version !== SESSION_COOKIE_VERSION ||
+      !ivRaw ||
+      !ciphertextRaw ||
+      !tagRaw
+    ) {
+      return null;
+    }
+
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      sessionEncryptionKey(),
+      Buffer.from(ivRaw, 'base64url')
+    );
+    decipher.setAuthTag(Buffer.from(tagRaw, 'base64url'));
+
+    const plaintext = Buffer.concat([
+      decipher.update(Buffer.from(ciphertextRaw, 'base64url')),
+      decipher.final(),
+    ]).toString('utf8');
+
+    const session = JSON.parse(plaintext) as AuthSession;
+    if (
+      !session ||
+      typeof session.sessionId !== 'string' ||
+      !session.user ||
+      !Array.isArray(session.installationIds) ||
+      session.expiresAt <= Date.now()
+    ) {
+      return null;
+    }
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+export async function setSessionCookie(session: AuthSession) {
   const jar = await cookies();
   jar.set({
     ...buildSessionCookieOptions(SESSION_TTL_SECONDS),
-    value: sessionId,
+    value: encodeSessionCookie(session),
   });
 }
 
@@ -283,9 +365,11 @@ export async function clearSessionCookie() {
   });
 }
 
-export async function readSessionCookie(): Promise<string | null> {
+export async function readSessionCookie(): Promise<AuthSession | null> {
   const jar = await cookies();
-  return jar.get(SESSION_COOKIE)?.value ?? null;
+  const raw = jar.get(SESSION_COOKIE)?.value;
+  if (!raw) return null;
+  return decodeSessionCookie(raw);
 }
 
 export async function setOAuthStateCookie(state: string) {
