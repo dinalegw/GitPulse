@@ -173,7 +173,9 @@ function PlaygroundContent() {
       } else {
         const data = (await response.json()) as { runId: string; state: PlaygroundState; output?: string; stderr?: string; exitCode?: number };
         setState(data.state);
-        setOutput(data.output ?? '');
+        const combinedOutput = [data.output, data.stderr].filter(Boolean).join('\n');
+        setOutput(combinedOutput);
+        if (combinedOutput) terminal.write(combinedOutput);
         if (data.state !== 'SUCCEEDED') {
           setError(`Command exited with code ${data.exitCode ?? '?'}`);
         }
@@ -279,7 +281,7 @@ function PlaygroundContent() {
   };
 
   const runInFlight = isActive(state);
-  const canRunAgain = isTerminal(state) || state === 'DISPOSED';
+  const canRunAgain = Boolean(sessionId) && (isTerminal(state) || state === 'DISPOSED');
 
   // Compute the button label / icon based on current state. This is the
   // canonical UX surface for the state machine.
@@ -308,7 +310,7 @@ function PlaygroundContent() {
         </>
       );
     }
-    if (state === 'SUCCEEDED' || state === 'DISPOSED' || state === 'FAILED' || state === 'TIMED_OUT' || state === 'CANCELLED' || state === 'START_FAILED' || state === 'CLEANUP_FAILED') {
+    if (state === 'SUCCEEDED' || (state === 'DISPOSED' && sessionId) || state === 'FAILED' || state === 'TIMED_OUT' || state === 'CANCELLED' || state === 'START_FAILED' || state === 'CLEANUP_FAILED') {
       return (
         <>
           <TerminalIcon className="h-5 w-5" />
@@ -415,7 +417,7 @@ function PlaygroundContent() {
                     {renderRunButton()}
                   </Button>
 
-                  {(state === 'RUNNING' || state === 'STARTING' || state === 'QUEUED') && (
+                  {isInteractive && (state === 'RUNNING' || state === 'STARTING' || state === 'QUEUED') && (
                     <Button variant="secondary" onClick={handleStop}>
                       <XCircle className="h-5 w-5" />
                       Stop
@@ -512,7 +514,7 @@ function PlaygroundContent() {
                   <p className="font-medium text-amber-300 mb-1">Disposable Sandbox Notice</p>
                   <p>
                     This terminal runs in an ephemeral Vercel Sandbox microVM with a scratch Git repository.
-                    A local bare repo serves as &ldquo;origin&rdquo; &mdash; no real GitHub credentials or network egress.
+                    A local bare repo serves as &ldquo;origin&rdquo; &mdash; no real GitHub credentials are injected into the sandbox.
                     Each Run / Run Again creates a brand-new sandbox; previous sessions are disposed.
                   </p>
                   <p className="mt-2 text-xs text-text-muted/80">

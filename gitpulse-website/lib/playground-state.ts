@@ -8,14 +8,14 @@
 //   (none)         -> QUEUED        on POST /api/playground/run
 //   QUEUED         -> STARTING      on sandbox-create success
 //   QUEUED         -> START_FAILED  on sandbox-create error
-//   STARTING       -> RUNNING       on first PTY/command execution
+//   STARTING       -> RUNNING       after sandbox bootstrap completes
 //   STARTING       -> FAILED        on init error
 //   RUNNING        -> SUCCEEDED     on exit code 0
 //   RUNNING        -> FAILED        on non-zero exit code
-//   RUNNING        -> TIMED_OUT     on E2B timeout
-//   RUNNING        -> CANCELLED     on user stop / disconnect
+//   RUNNING        -> TIMED_OUT     on sandbox execution timeout
+//   RUNNING        -> CANCELLED     on future cancellable/interactive execution
 //   <any>          -> CLEANUP       on cleanup start
-//   CLEANUP        -> CLEANUP_FAILED on kill error (sandbox already gone)
+//   CLEANUP        -> CLEANUP_FAILED on sandbox cleanup error
 //   CLEANUP        -> DISPOSED      on success
 //
 // The frontend MUST treat DISPOSED as the only terminal state that

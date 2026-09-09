@@ -1,303 +1,321 @@
-// Vercel Sandbox client wrapper for GitPulse playground.
-// Keeps sandbox state in Vercel KV so serverless requests can reconnect.
-
 import { Sandbox } from '@vercel/sandbox';
-import { kv } from '@vercel/kv';
-
-export interface SandboxSession {
-  sandboxName: string;
-  createdAt: number;
-  command: string;
-  args: string[];
-}
 
 const MAX_SESSION_SECONDS = parseInt(process.env.PLAYGROUND_MAX_SECONDS || '60', 10);
-const KV_SESSION_PREFIX = 'playground:session:';
-const KV_CONCURRENT_PREFIX = 'playground:concurrent:';
 const SCRATCH_DIR = '/vercel/sandbox/scratch-repo';
+const SOURCE_DIR = '/vercel/sandbox/gitpulse-src';
 const BIN_DIR = '/vercel/sandbox/bin';
 const GITPULSE_BIN = BIN_DIR + '/gitpulse';
+const SANDBOX_HOME = '/vercel/sandbox/home';
+const FAKE_ORIGIN = '/vercel/sandbox/fake-origin.git';
+const GO_ROOT = '/vercel/sandbox/go';
+const GO_VERSION = '1.26.3';
 
-async function saveSessionToKV(sessionId: string, session: SandboxSession): Promise<void> {
-  try {
-    await kv.set(`${KV_SESSION_PREFIX}${sessionId}`, JSON.stringify(session), {
-      ex: MAX_SESSION_SECONDS + 30,
-    });
-  } catch (error) {
-    console.error('[Sandbox] Failed to save session to KV:', error);
-  }
+const GO_SHA256: Record<'amd64' | 'arm64', string> = {
+  amd64: '2b2cfc7148493da5e73981bffbf3353af381d5f93e789c82c79aff64962eb556',
+  arm64: '9d89a3ea57d141c2b22d70083f2c8459ba3890f2d9e818e7e933b75614936565',
+};
+
+export interface SandboxCommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  cleanupError?: string;
 }
 
-async function loadSessionFromKV(sessionId: string): Promise<SandboxSession | null> {
-  try {
-    const data = await kv.get<string>(`${KV_SESSION_PREFIX}${sessionId}`);
-    return data ? JSON.parse(data) : null;
-  } catch (error) {
-    console.error('[Sandbox] Failed to load session from KV:', error);
-    return null;
-  }
-}
+type RunOptions = {
+  cwd?: string;
+  env?: Record<string, string>;
+  sudo?: boolean;
+};
 
-async function deleteSessionFromKV(sessionId: string): Promise<void> {
-  try {
-    await kv.del(`${KV_SESSION_PREFIX}${sessionId}`);
-  } catch (error) {
-    console.error('[Sandbox] Failed to delete session from KV:', error);
-  }
-}
-
-async function incrementConcurrentSessions(ip: string): Promise<number> {
-  try {
-    const key = `${KV_CONCURRENT_PREFIX}${ip}`;
-    const count = await kv.incr(key);
-    if (count === 1) await kv.expire(key, MAX_SESSION_SECONDS * 2);
-    return count;
-  } catch (error) {
-    console.error('[Sandbox] Failed to increment concurrent sessions:', error);
-    return 1;
-  }
-}
-
-async function decrementConcurrentSessions(ip: string): Promise<void> {
-  try {
-    const key = `${KV_CONCURRENT_PREFIX}${ip}`;
-    const current = (await kv.get<number>(key)) || 0;
-    if (current <= 1) {
-      await kv.del(key);
-    } else {
-      await kv.decr(key);
-    }
-  } catch (error) {
-    console.error('[Sandbox] Failed to decrement concurrent sessions:', error);
-  }
-}
-
-async function getConcurrentSessions(ip: string): Promise<number> {
-  try {
-    return (await kv.get<number>(`${KV_CONCURRENT_PREFIX}${ip}`)) || 0;
-  } catch (error) {
-    console.error('[Sandbox] Failed to get concurrent sessions:', error);
-    return 0;
-  }
+async function runCommand(
+  sandbox: Sandbox,
+  cmd: string,
+  args: string[],
+  options: RunOptions = {}
+) {
+  return sandbox.runCommand({
+    cmd,
+    args,
+    cwd: options.cwd,
+    env: options.env,
+    sudo: options.sudo,
+  });
 }
 
 async function runChecked(
   sandbox: Sandbox,
   cmd: string,
   args: string[],
-  options: { cwd?: string; sudo?: boolean } = {}
-): Promise<void> {
-  const result = await sandbox.runCommand({
-    cmd,
-    args,
-    cwd: options.cwd,
-    sudo: options.sudo,
-  });
-  if (result.exitCode !== 0) {
-    const stderr = await result.stderr();
-    const stdout = await result.stdout();
-    throw new Error(stderr.trim() || stdout.trim() || `${cmd} failed with exit code ${result.exitCode}`);
+  options: RunOptions = {}
+): Promise<string> {
+  let result;
+  try {
+    result = await runCommand(sandbox, cmd, args, options);
+  } catch (error) {
+    throw new Error(
+      `${cmd} could not start: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
+
+  const stdout = await result.stdout();
+  const stderr = await result.stderr();
+  if (result.exitCode !== 0) {
+    throw new Error(
+      stderr.trim() || stdout.trim() || `${cmd} failed with exit code ${result.exitCode}`
+    );
+  }
+  return stdout;
+}
+
+async function commandAvailable(
+  sandbox: Sandbox,
+  cmd: string,
+  args: string[] = ['--version']
+): Promise<boolean> {
+  try {
+    const result = await runCommand(sandbox, cmd, args);
+    return result.exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureGo(sandbox: Sandbox): Promise<string> {
+  if (await commandAvailable(sandbox, 'go', ['version'])) {
+    return 'go';
+  }
+
+  if (!(await commandAvailable(sandbox, 'node', ['--version']))) {
+    throw new Error('Vercel Sandbox runtime is missing Node.js; cannot bootstrap Go');
+  }
+  if (!(await commandAvailable(sandbox, 'tar', ['--version']))) {
+    throw new Error('Vercel Sandbox runtime is missing tar; cannot bootstrap Go');
+  }
+
+  const machine = (await runChecked(sandbox, 'uname', ['-m'])).trim();
+  let arch: 'amd64' | 'arm64';
+  if (machine === 'x86_64' || machine === 'amd64') {
+    arch = 'amd64';
+  } else if (machine === 'aarch64' || machine === 'arm64') {
+    arch = 'arm64';
+  } else {
+    throw new Error(`Unsupported Vercel Sandbox architecture: ${machine}`);
+  }
+
+  const tarball = `/vercel/sandbox/go${GO_VERSION}.linux-${arch}.tar.gz`;
+  const url = `https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz`;
+  const expectedSha = GO_SHA256[arch];
+
+  const downloader = [
+    'const fs=require("fs");',
+    'const crypto=require("crypto");',
+    'const [url,file,expected]=process.argv.slice(-3);',
+    '(async()=>{',
+    ' const r=await fetch(url);',
+    ' if(!r.ok) throw new Error("download failed: HTTP "+r.status);',
+    ' const b=Buffer.from(await r.arrayBuffer());',
+    ' const actual=crypto.createHash("sha256").update(b).digest("hex");',
+    ' if(actual!==expected) throw new Error("Go checksum mismatch: "+actual);',
+    ' fs.writeFileSync(file,b);',
+    '})().catch(e=>{console.error(e.message||e);process.exit(1)});',
+  ].join('');
+
+  await runChecked(sandbox, 'node', ['-e', downloader, url, tarball, expectedSha]);
+  await runChecked(sandbox, 'rm', ['-rf', GO_ROOT]);
+  await runChecked(sandbox, 'mkdir', ['-p', GO_ROOT]);
+  await runChecked(sandbox, 'tar', ['-xzf', tarball, '-C', GO_ROOT, '--strip-components=1']);
+
+  const goBin = `${GO_ROOT}/bin/go`;
+  if (!(await commandAvailable(sandbox, goBin, ['version']))) {
+    throw new Error('Go bootstrap completed but the Go executable is unavailable');
+  }
+  return goBin;
 }
 
 async function setupScratchRepo(sandbox: Sandbox): Promise<void> {
-  // Avoid distro package managers: Vercel Sandbox images may not include apt-get.
-  // Bootstrap the pinned Go toolchain directly when Go is absent.
-  await runChecked(sandbox, 'bash', [
-    '-lc',
-    [
-      'set -euo pipefail',
-      'if ! command -v go >/dev/null 2>&1; then',
-      '  case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; *) echo "unsupported sandbox architecture: $(uname -m)" >&2; exit 1 ;; esac',
-      '  GO_VERSION=1.26.3',
-      '  GO_TARBALL="/vercel/sandbox/go${GO_VERSION}.linux-${GOARCH}.tar.gz"',
-      '  GO_URL="https://go.dev/dl/go${GO_VERSION}.linux-${GOARCH}.tar.gz"',
-      "  node -e 'const fs=require(\"fs\");fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error(\"download failed: \"+r.status);return r.arrayBuffer()}).then(b=>fs.writeFileSync(process.argv[2],Buffer.from(b))).catch(e=>{console.error(e);process.exit(1)})' \"$GO_URL\" \"$GO_TARBALL\"",
-      '  rm -rf /vercel/sandbox/go',
-      '  mkdir -p /vercel/sandbox/go',
-      '  tar -xzf "$GO_TARBALL" -C /vercel/sandbox/go --strip-components=1',
-      'fi',
-      'export PATH="/vercel/sandbox/go/bin:$PATH"',
-      `rm -rf "${SCRATCH_DIR}" /vercel/sandbox/fake-origin.git /vercel/sandbox/gitpulse-src "${BIN_DIR}"`,
-      `mkdir -p "${SCRATCH_DIR}" "${BIN_DIR}"`,
-      `git clone --depth 1 https://github.com/dinalegw/GitPulse.git /vercel/sandbox/gitpulse-src`,
-      `cd /vercel/sandbox/gitpulse-src && go build -o "${GITPULSE_BIN}" .`,
-      `cd "${SCRATCH_DIR}"`,
-      'git init',
-      'git branch -M main',
-      'git config user.email "playground@gitpulse.local"',
-      'git config user.name "GitPulse Playground"',
-      'printf "# Scratch Repository\\n" > README.md',
-      'git add README.md',
-      'git commit -m "Initial commit"',
-      'git init --bare /vercel/sandbox/fake-origin.git',
-      'git remote add origin /vercel/sandbox/fake-origin.git',
-      'git push -u origin main',
-    ].join('\n'),
-  ]);
-}
-export async function createSandboxSession(
-  sessionId: string,
-  command: string,
-  args: string[],
-  clientIp?: string
-): Promise<SandboxSession> {
-  if (clientIp) {
-    const maxConcurrent = parseInt(process.env.PLAYGROUND_MAX_CONCURRENT_PER_IP || '3', 10);
-    const concurrent = await getConcurrentSessions(clientIp);
-    if (concurrent >= maxConcurrent) {
-      throw new Error(`Too many concurrent sessions (max ${maxConcurrent}). Please wait for one to complete.`);
-    }
-    await incrementConcurrentSessions(clientIp);
+  if (!(await commandAvailable(sandbox, 'git', ['--version']))) {
+    throw new Error('Vercel Sandbox image does not provide git');
   }
 
+  const goBin = await ensureGo(sandbox);
+
+  await runChecked(sandbox, 'rm', [
+    '-rf',
+    SCRATCH_DIR,
+    SOURCE_DIR,
+    BIN_DIR,
+    SANDBOX_HOME,
+    FAKE_ORIGIN,
+  ]);
+  await runChecked(sandbox, 'mkdir', ['-p', SCRATCH_DIR, BIN_DIR, SANDBOX_HOME]);
+
+  await runChecked(sandbox, 'git', [
+    'clone',
+    '--depth',
+    '1',
+    'https://github.com/dinalegw/GitPulse.git',
+    SOURCE_DIR,
+  ]);
+
+  await runChecked(
+    sandbox,
+    goBin,
+    ['build', '-trimpath', '-o', GITPULSE_BIN, '.'],
+    { cwd: SOURCE_DIR }
+  );
+
+  await runChecked(sandbox, 'git', ['init'], { cwd: SCRATCH_DIR });
+  await runChecked(sandbox, 'git', ['branch', '-M', 'main'], { cwd: SCRATCH_DIR });
+  await runChecked(
+    sandbox,
+    'git',
+    ['config', 'user.email', 'playground@gitpulse.local'],
+    { cwd: SCRATCH_DIR }
+  );
+  await runChecked(
+    sandbox,
+    'git',
+    ['config', 'user.name', 'GitPulse Playground'],
+    { cwd: SCRATCH_DIR }
+  );
+
+  await sandbox.writeFiles([
+    {
+      path: `${SCRATCH_DIR}/README.md`,
+      content: Buffer.from('# Scratch Repository\n', 'utf8'),
+    },
+  ]);
+
+  await runChecked(sandbox, 'git', ['add', 'README.md'], { cwd: SCRATCH_DIR });
+  await runChecked(sandbox, 'git', ['commit', '-m', 'Initial commit'], { cwd: SCRATCH_DIR });
+
+  await runChecked(sandbox, 'git', ['init', '--bare', FAKE_ORIGIN]);
+  await runChecked(sandbox, 'git', ['remote', 'add', 'origin', FAKE_ORIGIN], {
+    cwd: SCRATCH_DIR,
+  });
+  await runChecked(sandbox, 'git', ['push', '-u', 'origin', 'main'], {
+    cwd: SCRATCH_DIR,
+  });
+}
+
+export async function runSandboxCommand(
+  command: string,
+  args: string[],
+  onReady?: () => Promise<void> | void
+): Promise<SandboxCommandResult> {
   let sandbox: Sandbox | null = null;
+  let response: SandboxCommandResult | null = null;
+  let primaryError: unknown;
+
   try {
     sandbox = await Sandbox.create({
       runtime: 'node24',
       persistent: false,
       timeout: Math.max(MAX_SESSION_SECONDS, 180) * 1000,
-      tags: { app: 'gitpulse', purpose: 'playground' },
+      env: {
+        HOME: SANDBOX_HOME,
+        GIT_CONFIG_NOSYSTEM: '1',
+      },
+      tags: {
+        app: 'gitpulse',
+        purpose: 'playground',
+      },
     });
 
     await setupScratchRepo(sandbox);
+    await onReady?.();
 
-    const session: SandboxSession = {
-      sandboxName: sandbox.name,
-      createdAt: Date.now(),
-      command,
-      args,
+    const result = await runCommand(sandbox, GITPULSE_BIN, [command, ...args], {
+      cwd: SCRATCH_DIR,
+      env: {
+        HOME: SANDBOX_HOME,
+        GIT_CONFIG_NOSYSTEM: '1',
+      },
+    });
+
+    response = {
+      exitCode: result.exitCode,
+      stdout: await result.stdout(),
+      stderr: await result.stderr(),
     };
-    await saveSessionToKV(sessionId, session);
-    return session;
   } catch (error) {
+    primaryError = error;
+  } finally {
     if (sandbox) {
-      try { await sandbox.delete(); } catch { /* best effort */ }
-    }
-    if (clientIp) await decrementConcurrentSessions(clientIp);
-    throw error;
-  }
-}
-
-export async function reconnectSandboxSession(
-  sessionId: string
-): Promise<{ sandbox: Sandbox; session: SandboxSession } | null> {
-  const session = await loadSessionFromKV(sessionId);
-  if (!session) return null;
-  const sandbox = await Sandbox.get({ name: session.sandboxName });
-  return { sandbox, session };
-}
-
-export async function executeCommand(
-  sessionId: string,
-  command: string,
-  args: string[]
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const reconnected = await reconnectSandboxSession(sessionId);
-  if (!reconnected) throw new Error('Session not found or expired');
-
-  const result = await reconnected.sandbox.runCommand({
-    cmd: GITPULSE_BIN,
-    args: [command, ...args],
-    cwd: SCRATCH_DIR,
-  });
-
-  return {
-    exitCode: result.exitCode,
-    stdout: await result.stdout(),
-    stderr: await result.stderr(),
-  };
-}
-
-// The current Vercel Sandbox SDK does not expose a browser-addressable PTY API.
-// Keep the flagship wizard usable by feeding safe demo answers server-side.
-export async function startInteractiveProcess(
-  sessionId: string,
-  command: string,
-  args: string[],
-  onStdout: (data: string) => void,
-  onStderr: (data: string) => void,
-  onExit: (exitCode: number) => void
-): Promise<void> {
-  const reconnected = await reconnectSandboxSession(sessionId);
-  if (!reconnected) throw new Error('Session not found or expired');
-
-  let result;
-  if (command === 'quick-wizard') {
-    result = await reconnected.sandbox.runCommand({
-      cmd: 'bash',
-      args: ['-lc', `printf 'y\\n1\\n0\\nPlayground demo\\n' | "${GITPULSE_BIN}"`],
-      cwd: SCRATCH_DIR,
-    });
-  } else {
-    result = await reconnected.sandbox.runCommand({
-      cmd: GITPULSE_BIN,
-      args: [command, ...args],
-      cwd: SCRATCH_DIR,
-    });
-  }
-
-  const stdout = await result.stdout();
-  const stderr = await result.stderr();
-  if (stdout) onStdout(stdout);
-  if (stderr) onStderr(stderr);
-  onExit(result.exitCode);
-}
-
-export async function sendStdin(_sessionId: string, _input: string): Promise<void> {
-  // Interactive browser stdin is intentionally disabled until Vercel exposes
-  // a stable SDK PTY transport suitable for reconnecting serverless requests.
-}
-
-export async function resizePTY(_sessionId: string, _cols: number, _rows: number): Promise<void> {
-  // No-op for the non-PTY Vercel Sandbox transport.
-}
-
-export async function killProcess(sessionId: string): Promise<void> {
-  const reconnected = await reconnectSandboxSession(sessionId);
-  if (!reconnected) return;
-  try {
-    await reconnected.sandbox.stop();
-  } catch (error) {
-    console.error('[Sandbox] Error stopping sandbox:', error);
-  }
-}
-
-export async function getSession(sessionId: string): Promise<SandboxSession | null> {
-  return loadSessionFromKV(sessionId);
-}
-
-export async function cleanupSession(sessionId: string, clientIp?: string): Promise<void> {
-  const reconnected = await reconnectSandboxSession(sessionId).catch(() => null);
-  if (reconnected) {
-    try {
-      await reconnected.sandbox.delete();
-    } catch (error) {
-      console.error('[Sandbox] Error deleting sandbox:', error);
+      try {
+        await sandbox.stop();
+      } catch (cleanupError) {
+        const message =
+          cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+        if (response) {
+          response.cleanupError = message;
+        } else {
+          console.error('[Sandbox] Cleanup failed after primary error:', message);
+        }
+      }
     }
   }
-  await deleteSessionFromKV(sessionId);
-  if (clientIp) await decrementConcurrentSessions(clientIp);
-}
 
-export async function cleanupExpiredSessions(): Promise<void> {
-  console.log('[Sandbox] KV TTL handles session metadata expiration automatically');
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!response) {
+    throw new Error('Sandbox command produced no result');
+  }
+  return response;
 }
 
 export function validateCommand(command: string, args: string[]): { valid: boolean; error?: string } {
   const { PLAYGROUND_COMMANDS, CONFIG_KEYS } = require('./commands');
 
   const cmdMeta = PLAYGROUND_COMMANDS.find((c: { name: string }) => c.name === command);
-  if (!cmdMeta) return { valid: false, error: `Command '${command}' not allowed in playground` };
+  if (!cmdMeta) {
+    return { valid: false, error: `Command '${command}' not allowed in playground` };
+  }
 
-  const allowedFlags = new Set(cmdMeta.flags.map((f: { name: string }) => f.name.split(' ')[0]));
+  const allowedFlags = new Set(
+    cmdMeta.flags.map((f: { name: string }) => f.name.split(' ')[0])
+  );
+
   for (const arg of args) {
     if (arg.startsWith('--') || arg.startsWith('-')) {
       const flagName = arg.split('=')[0];
       if (!allowedFlags.has(flagName)) {
-        return { valid: false, error: `Flag '${flagName}' not allowed for '${command}' in playground` };
+        return {
+          valid: false,
+          error: `Flag '${flagName}' not allowed for '${command}' in playground`,
+        };
       }
     }
+  }
+
+  if (command === 'run') {
+    if (args.includes('--schedule') || args.includes('--daemon')) {
+      return {
+        valid: false,
+        error: 'Scheduled/daemon mode is disabled in the disposable playground',
+      };
+    }
+
+    const countIndex = args.indexOf('--count');
+    if (countIndex >= 0) {
+      const rawCount = args[countIndex + 1];
+      const count = Number(rawCount);
+      if (!Number.isInteger(count) || count < 1 || count > 5) {
+        return {
+          valid: false,
+          error: 'Playground --count must be an integer between 1 and 5',
+        };
+      }
+    }
+  }
+
+  if (command === 'logs' && args.includes('--tail')) {
+    return {
+      valid: false,
+      error: 'Streaming --tail mode is disabled in the disposable playground',
+    };
   }
 
   if (command === 'config' && args.includes('set')) {
@@ -312,5 +330,3 @@ export function validateCommand(command: string, args: string[]): { valid: boole
 
   return { valid: true };
 }
-
-export { getConcurrentSessions, incrementConcurrentSessions, decrementConcurrentSessions };

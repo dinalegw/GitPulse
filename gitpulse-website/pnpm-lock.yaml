@@ -12,7 +12,7 @@ importers:
         specifier: ^3.0.0
         version: 3.0.0
       '@vercel/sandbox':
-        specifier: ^3.2.1
+        specifier: 3.2.2
         version: 3.2.2
       lucide-react:
         specifier: ^0.454.0
