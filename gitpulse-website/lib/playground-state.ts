@@ -9,7 +9,7 @@
 //   QUEUED         -> STARTING      on sandbox-create success
 //   QUEUED         -> START_FAILED  on sandbox-create error
 //   STARTING       -> RUNNING       after sandbox bootstrap completes
-//   STARTING       -> FAILED        on init error
+//   STARTING       -> FAILED        on execution initialization error
 //   RUNNING        -> SUCCEEDED     on exit code 0
 //   RUNNING        -> FAILED        on non-zero exit code
 //   RUNNING        -> TIMED_OUT     on sandbox execution timeout
@@ -40,7 +40,7 @@ export type PlaygroundState = (typeof PLAYGROUND_STATES)[number];
 
 const ALLOWED: Record<PlaygroundState, PlaygroundState[]> = {
   QUEUED: ['STARTING', 'START_FAILED'],
-  STARTING: ['RUNNING', 'FAILED', 'CLEANUP', 'START_FAILED'],
+  STARTING: ['RUNNING', 'FAILED', 'TIMED_OUT', 'CLEANUP', 'START_FAILED'],
   RUNNING: ['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELLED', 'CLEANUP'],
   SUCCEEDED: ['CLEANUP'],
   FAILED: ['CLEANUP'],
