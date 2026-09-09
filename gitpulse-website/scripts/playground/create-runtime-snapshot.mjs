@@ -177,6 +177,14 @@ async function prepareSnapshot(sandbox, ref) {
     content: Buffer.from(config, 'utf8'),
   }]);
 
+  // The production fast path only needs the compiled binary and fixtures.
+  // Remove the source tree and toolchain before snapshotting to keep restores lean.
+  await run(sandbox, 'rm', ['-rf', SOURCE_DIR, GO_ROOT], { env: SAFE_ENV });
+  await run(sandbox, 'rm', ['-f',
+    `/vercel/sandbox/go${GO_VERSION}.linux-amd64.tar.gz`,
+    `/vercel/sandbox/go${GO_VERSION}.linux-arm64.tar.gz`,
+  ], { env: SAFE_ENV });
+
   const shaScript = 'const fs=require("fs"),c=require("crypto");process.stdout.write(c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))';
   const binarySha256 = (await run(sandbox, 'node', ['-e', shaScript, GITPULSE_BIN], { env: SAFE_ENV })).trim();
 
