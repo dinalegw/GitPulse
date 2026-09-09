@@ -167,11 +167,12 @@ export function validatePlaygroundCommand(command, args, commands, configKeys, s
         error: 'Streaming --tail mode is disabled in the disposable playground',
       };
     }
-    const linesEntries = [
-      ...getEntries(parsed, '-n'),
-      ...getEntries(parsed, '--lines'),
-    ];
-    const linesError = parseBoundedInteger(linesEntries, 'Playground log line count', 1, 200);
+    const linesError = parseBoundedInteger(
+      getEntries(parsed, '--lines'),
+      'Playground log line count',
+      1,
+      200
+    );
     if (linesError) return { valid: false, error: linesError };
   }
 
