@@ -399,6 +399,7 @@ export async function runSandboxCommand(
   onReady?: () => Promise<void> | void
 ): Promise<SandboxCommandResult> {
   let sandbox: Sandbox | null = null;
+  let executionStarted = false;
   let result: SandboxCommandResult = {
     state: 'START_FAILED',
     stdout: '',
@@ -411,7 +412,11 @@ export async function runSandboxCommand(
     } catch (error) {
       result = {
         state:
-          error instanceof PlaygroundTimeoutError ? 'TIMED_OUT' : 'START_FAILED',
+          error instanceof PlaygroundTimeoutError
+            ? 'TIMED_OUT'
+            : executionStarted
+              ? 'FAILED'
+              : 'START_FAILED',
         stdout: '',
         stderr: '',
         error: error instanceof Error ? error.message : String(error),
@@ -424,6 +429,7 @@ export async function runSandboxCommand(
         (async () => {
           await setupScratchRepo(sandbox!);
           await onReady?.();
+          executionStarted = true;
 
           let commandResult;
           try {
