@@ -24,6 +24,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   github_token_exchange_failed: 'GitHub did not accept the authorization code. Please try again.',
   github_token_exchange_rejected: 'GitHub rejected the authorization code. Please try again.',
   github_user_profile_failed: 'GitHub did not return your user profile. Please try again.',
+  github_installations_failed: 'GitHub sign-in succeeded, but GitPulse could not read the repositories/installations authorized for this GitHub App. Confirm the app is installed on at least one repository.',
+  oauth_login_failed: 'GitHub sign-in could not start. Please try again.',
   rate_limited: 'Too many sign-in attempts. Please wait a minute and try again.',
 };
 
