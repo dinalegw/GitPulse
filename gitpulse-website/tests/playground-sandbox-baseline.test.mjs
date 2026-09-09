@@ -6,11 +6,13 @@ const sandbox = readFileSync(new URL('../lib/sandbox.ts', import.meta.url), 'utf
 const commands = readFileSync(new URL('../lib/commands.ts', import.meta.url), 'utf8');
 
 test('non-init commands receive a valid scratch-repo config', () => {
-  assert.match(sandbox, /command !== 'init'/);
+  assert.match(sandbox, /command !== 'init'|command === 'init'/);
   assert.match(sandbox, /repository_path:/);
   assert.match(sandbox, /dry_run: true/);
   assert.match(sandbox, /push_remote:/);
-  assert.match(sandbox, /setupScratchRepo\(sandbox!, command\)/);
+  assert.match(sandbox, /writePlaygroundConfig/);
+  assert.match(sandbox, /resetSnapshotScratchRepo/);
+  assert.match(sandbox, /setupFreshSandbox/);
 });
 
 test('init creates its own fresh configuration', () => {
