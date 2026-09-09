@@ -1,26 +1,14 @@
-// Run record store. Tracks every playground execution with an explicit
-// state machine. Two responsibilities:
-//
-//   1. Idempotency. A repeated request with the same client-provided
-//      idempotency key returns the same execution id. The in-memory claim
-//      is atomic within one server instance; optional KV extends history
-//      across instances. The frontend also has a synchronous in-flight
-//      click guard so normal double-clicks never create two requests.
-//
-//   2. Visibility. The frontend can fetch the current state of any
-//      execution by id. The state machine guarantees there are no
-//      ambiguous transitions.
-//
-// Backed by Vercel KV in production; in-memory Map in local dev. The
-// Map is intentionally non-persistent.
+// Run metadata and idempotency store.
+// Sandbox identity and execution NEVER depend on this module.
 
 import { kv } from '@vercel/kv';
+import { withOptionalStorageTimeout } from './optional-storage';
 import type { PlaygroundState } from './playground-state';
 import { canTransition, isTerminal } from './playground-state';
 
 const KV_RUN_PREFIX = 'playground:run:';
 const KV_IDEMP_PREFIX = 'playground:idemp:';
-const RUN_TTL_SECONDS = 60 * 60 * 2; // retain run history for 2 hours
+const RUN_TTL_SECONDS = 60 * 60 * 2;
 
 export interface PlaygroundRun {
   runId: string;
@@ -41,10 +29,13 @@ interface MemoryStore {
   runs: Map<string, PlaygroundRun>;
   idemp: Map<string, string>;
 }
-const memory: MemoryStore = (globalThis as { __gitpulseRunStore?: MemoryStore }).__gitpulseRunStore ?? {
-  runs: new Map(),
-  idemp: new Map(),
-};
+
+const memory: MemoryStore =
+  (globalThis as { __gitpulseRunStore?: MemoryStore }).__gitpulseRunStore ?? {
+    runs: new Map(),
+    idemp: new Map(),
+  };
+
 if (!(globalThis as { __gitpulseRunStore?: MemoryStore }).__gitpulseRunStore) {
   (globalThis as { __gitpulseRunStore?: MemoryStore }).__gitpulseRunStore = memory;
 }
@@ -57,33 +48,105 @@ function randomRunId(): string {
   return `run_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function normalizeIdempotencyKey(command: string, args: string[], key: string): string {
-  // The key already encodes the client request. We additionally bind it to
-  // the (command, args) tuple so a key from one command cannot collide
-  // with another command.
+function normalizeIdempotencyKey(
+  command: string,
+  args: string[],
+  key: string
+): string {
   return `${command}|${args.join('\u0000')}|${key}`;
+}
+
+function buildRun(input: {
+  sessionId: string;
+  command: string;
+  args: string[];
+  idempotencyKey: string;
+  ip?: string;
+}, runId = randomRunId()): PlaygroundRun {
+  const now = Date.now();
+  return {
+    runId,
+    sessionId: input.sessionId,
+    idempotencyKey: input.idempotencyKey,
+    command: input.command,
+    args: input.args,
+    state: 'QUEUED',
+    stateHistory: [{ state: 'QUEUED', at: now }],
+    createdAt: now,
+    updatedAt: now,
+    ip: input.ip,
+  };
+}
+
+function rememberRun(run: PlaygroundRun, normalized?: string): void {
+  memory.runs.set(run.runId, run);
+  if (normalized) memory.idemp.set(normalized, run.runId);
+}
+
+async function persistRun(run: PlaygroundRun): Promise<void> {
+  memory.runs.set(run.runId, run);
+  if (!kvAvailable()) return;
+
+  try {
+    await withOptionalStorageTimeout(
+      kv.set(`${KV_RUN_PREFIX}${run.runId}`, JSON.stringify(run), {
+        ex: RUN_TTL_SECONDS,
+      }),
+      'run metadata write'
+    );
+  } catch (error) {
+    console.warn('[runs] optional KV write unavailable; continuing in memory:', error);
+  }
+}
+
+export async function loadRun(runId: string): Promise<PlaygroundRun | null> {
+  const local = memory.runs.get(runId);
+  if (local) return local;
+
+  if (kvAvailable()) {
+    try {
+      const raw = await withOptionalStorageTimeout(
+        kv.get<string>(`${KV_RUN_PREFIX}${runId}`),
+        'run metadata read'
+      );
+      if (typeof raw === 'string') {
+        const run = JSON.parse(raw) as PlaygroundRun;
+        memory.runs.set(runId, run);
+        return run;
+      }
+    } catch (error) {
+      console.warn('[runs] optional KV read unavailable; using memory:', error);
+    }
+  }
+
+  return null;
 }
 
 export async function findRunByIdempotencyKey(
   command: string,
   args: string[],
-  idempotencyKey: string,
+  idempotencyKey: string
 ): Promise<PlaygroundRun | null> {
   const normalized = normalizeIdempotencyKey(command, args, idempotencyKey);
-  if (kvAvailable()) {
-    try {
-      const runId = await kv.get<string>(`${KV_IDEMP_PREFIX}${normalized}`);
-      if (runId) {
-        return await loadRun(runId);
-      }
-      return null;
-    } catch (error) {
-      console.warn('[runs] KV read failed, falling back to memory:', error);
-    }
+  const localId = memory.idemp.get(normalized);
+  if (localId) {
+    const local = memory.runs.get(localId);
+    if (local) return local;
   }
-  const runId = memory.idemp.get(normalized);
-  if (!runId) return null;
-  return memory.runs.get(runId) ?? null;
+
+  if (!kvAvailable()) return null;
+
+  try {
+    const runId = await withOptionalStorageTimeout(
+      kv.get<string>(`${KV_IDEMP_PREFIX}${normalized}`),
+      'idempotency read'
+    );
+    if (!runId) return null;
+    return await loadRun(runId);
+  } catch (error) {
+    console.warn('[runs] optional KV idempotency read unavailable:', error);
+    return null;
+  }
 }
 
 export async function claimRun(input: {
@@ -93,59 +156,75 @@ export async function claimRun(input: {
   idempotencyKey: string;
   ip?: string;
 }): Promise<{ run: PlaygroundRun; created: boolean }> {
-  const existing = await findRunByIdempotencyKey(
-    input.command,
-    input.args,
-    input.idempotencyKey
-  );
-  if (existing) return { run: existing, created: false };
-
   const normalized = normalizeIdempotencyKey(
     input.command,
     input.args,
     input.idempotencyKey
   );
 
-  // Re-check and claim synchronously after the async lookup. This closes
-  // the same-instance race where two requests both observed a cache miss.
-  const claimedRunId = memory.idemp.get(normalized);
-  if (claimedRunId) {
-    const claimed = memory.runs.get(claimedRunId);
-    if (claimed) return { run: claimed, created: false };
+  // Same-instance claim is synchronous.
+  const localId = memory.idemp.get(normalized);
+  if (localId) {
+    const local = memory.runs.get(localId);
+    if (local) return { run: local, created: false };
   }
 
-  const runId = randomRunId();
-  const now = Date.now();
-  const run: PlaygroundRun = {
-    runId,
-    sessionId: input.sessionId,
-    idempotencyKey: input.idempotencyKey,
-    command: input.command,
-    args: input.args,
-    state: 'QUEUED',
-    stateHistory: [{ state: 'QUEUED', at: now }],
-    createdAt: now,
-    updatedAt: now,
-    ip: input.ip,
-  };
-
-  memory.idemp.set(normalized, runId);
-  memory.runs.set(runId, run);
+  const candidate = buildRun(input);
 
   if (kvAvailable()) {
     try {
-      await kv.set(`${KV_IDEMP_PREFIX}${normalized}`, runId, {
-        ex: RUN_TTL_SECONDS,
-      });
-      await kv.set(`${KV_RUN_PREFIX}${runId}`, JSON.stringify(run), {
-        ex: RUN_TTL_SECONDS,
-      });
+      // Redis SET NX is the distributed atomic claim. This is deliberately
+      // not implemented as GET -> SET.
+      const claimed = await withOptionalStorageTimeout(
+        kv.set(`${KV_IDEMP_PREFIX}${normalized}`, candidate.runId, {
+          nx: true,
+          ex: RUN_TTL_SECONDS,
+        }),
+        'atomic idempotency claim'
+      );
+
+      if (!claimed) {
+        const existingRunId = await withOptionalStorageTimeout(
+          kv.get<string>(`${KV_IDEMP_PREFIX}${normalized}`),
+          'idempotency winner read'
+        );
+
+        if (existingRunId) {
+          const existing = await loadRun(existingRunId);
+          if (existing) {
+            rememberRun(existing, normalized);
+            return { run: existing, created: false };
+          }
+
+          // The winning instance may not have persisted its run record yet.
+          // A minimal QUEUED record is enough for the duplicate 409 response.
+          const placeholder = buildRun(input, existingRunId);
+          rememberRun(placeholder, normalized);
+          return { run: placeholder, created: false };
+        }
+      } else {
+        rememberRun(candidate, normalized);
+        await persistRun(candidate);
+        return { run: candidate, created: true };
+      }
     } catch (error) {
-      console.warn('[runs] KV claim persistence failed; continuing in memory:', error);
+      console.warn(
+        '[runs] distributed idempotency unavailable; falling back to same-instance claim:',
+        error
+      );
     }
   }
 
-  return { run, created: true };
+  // Re-check after the optional async distributed claim attempt.
+  const racedId = memory.idemp.get(normalized);
+  if (racedId) {
+    const raced = memory.runs.get(racedId);
+    if (raced) return { run: raced, created: false };
+  }
+
+  rememberRun(candidate, normalized);
+  await persistRun(candidate);
+  return { run: candidate, created: true };
 }
 
 export async function createRun(input: {
@@ -155,80 +234,47 @@ export async function createRun(input: {
   idempotencyKey: string;
   ip?: string;
 }): Promise<PlaygroundRun> {
-  const runId = randomRunId();
-  const now = Date.now();
-  const run: PlaygroundRun = {
-    runId,
-    sessionId: input.sessionId,
-    idempotencyKey: input.idempotencyKey,
-    command: input.command,
-    args: input.args,
-    state: 'QUEUED',
-    stateHistory: [{ state: 'QUEUED', at: now }],
-    createdAt: now,
-    updatedAt: now,
-    ip: input.ip,
-  };
+  const run = buildRun(input);
+  const normalized = normalizeIdempotencyKey(
+    input.command,
+    input.args,
+    input.idempotencyKey
+  );
+  rememberRun(run, normalized);
   await persistRun(run);
-  const normalized = normalizeIdempotencyKey(input.command, input.args, input.idempotencyKey);
-  if (kvAvailable()) {
-    try {
-      await kv.set(`${KV_IDEMP_PREFIX}${normalized}`, runId, { ex: RUN_TTL_SECONDS });
-    } catch {
-      // Persist failure: fall through to memory only.
-    }
-  }
-  memory.idemp.set(normalized, runId);
   return run;
 }
 
-export async function loadRun(runId: string): Promise<PlaygroundRun | null> {
-  if (kvAvailable()) {
-    try {
-      const raw = await kv.get<string>(`${KV_RUN_PREFIX}${runId}`);
-      if (raw) return JSON.parse(raw) as PlaygroundRun;
-    } catch {
-      // Fall through.
-    }
-  }
-  return memory.runs.get(runId) ?? null;
-}
-
-async function persistRun(run: PlaygroundRun): Promise<void> {
-  if (kvAvailable()) {
-    try {
-      await kv.set(`${KV_RUN_PREFIX}${run.runId}`, JSON.stringify(run), { ex: RUN_TTL_SECONDS });
-    } catch (error) {
-      console.warn('[runs] KV write failed, falling back to memory:', error);
-    }
-  }
-  memory.runs.set(run.runId, run);
-}
-
-export async function transitionState(runId: string, to: PlaygroundState, meta?: { exitCode?: number; errorMessage?: string }): Promise<PlaygroundRun | null> {
+export async function transitionState(
+  runId: string,
+  to: PlaygroundState,
+  meta?: { exitCode?: number; errorMessage?: string }
+): Promise<PlaygroundRun | null> {
   const run = await loadRun(runId);
   if (!run) return null;
   if (run.state === to) return run;
+
   if (!canTransition(run.state, to)) {
-    console.warn(`[runs] refusing invalid transition ${run.state} -> ${to} for ${runId}`);
+    console.warn(
+      `[runs] refusing invalid transition ${run.state} -> ${to} for ${runId}`
+    );
     return run;
   }
+
   run.state = to;
   run.updatedAt = Date.now();
   run.stateHistory.push({ state: to, at: run.updatedAt });
   if (typeof meta?.exitCode === 'number') run.exitCode = meta.exitCode;
   if (meta?.errorMessage) run.errorMessage = meta.errorMessage;
+
   await persistRun(run);
   return run;
 }
 
-// cleanupStuckRuns repairs stale run metadata whose state is non-terminal.
-// Sandbox resources are not looked up here: one-shot execution owns and
-// deletes its sandbox directly, and the Vercel sandbox timeout is a final
-// infrastructure backstop. Idempotent.
 export async function cleanupStuckRuns(maxAgeMs: number): Promise<number> {
   const cutoff = Date.now() - maxAgeMs;
   let cleaned = 0;
+
   for (const run of memory.runs.values()) {
     if (isTerminal(run.state)) continue;
     if (run.updatedAt >= cutoff) continue;
@@ -236,5 +282,6 @@ export async function cleanupStuckRuns(maxAgeMs: number): Promise<number> {
     await transitionState(run.runId, 'DISPOSED');
     cleaned++;
   }
+
   return cleaned;
 }

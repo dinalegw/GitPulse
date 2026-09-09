@@ -1,6 +1,8 @@
+import { Writable } from 'node:stream';
 import { Sandbox } from '@vercel/sandbox';
 import { PLAYGROUND_COMMANDS, CONFIG_KEYS } from './commands';
 import { validatePlaygroundCommand } from './playground-policy';
+import { PLAYGROUND_RUNTIME } from './generated/playground-runtime';
 
 const SCRATCH_DIR = '/vercel/sandbox/scratch-repo';
 const SOURCE_DIR = '/vercel/sandbox/gitpulse-src';
@@ -10,6 +12,9 @@ const SANDBOX_HOME = '/vercel/sandbox/home';
 const FAKE_ORIGIN = '/vercel/sandbox/fake-origin.git';
 const GO_ROOT = '/vercel/sandbox/go';
 const GO_VERSION = '1.26.3';
+const RUNTIME_MARKER = '/vercel/sandbox/gitpulse-runtime.json';
+const RUNTIME_SCHEMA_VERSION = 1;
+const MAX_CAPTURE_BYTES = 256 * 1024;
 
 function boundedInteger(
   raw: string | undefined,
@@ -54,6 +59,16 @@ export type SandboxResultState =
   | 'START_FAILED'
   | 'TIMED_OUT';
 
+export interface PlaygroundTimings {
+  sandboxCreateMs: number;
+  runtimeVerifyMs: number;
+  scratchRepoMs: number;
+  executionMs: number;
+  cleanupMs: number;
+  totalMs: number;
+  usedSnapshot: boolean;
+}
+
 export interface SandboxCommandResult {
   state: SandboxResultState;
   exitCode?: number;
@@ -61,12 +76,23 @@ export interface SandboxCommandResult {
   stderr: string;
   error?: string;
   cleanupError?: string;
+  timings: PlaygroundTimings;
+}
+
+export interface SandboxHooks {
+  onReady?: () => Promise<void> | void;
+  onProgress?: (stage: string, message: string) => void;
+  onStdout?: (data: string) => void;
+  onStderr?: (data: string) => void;
+  onCleanup?: () => void;
 }
 
 type RunOptions = {
   cwd?: string;
   env?: Record<string, string>;
   sudo?: boolean;
+  stdout?: Writable;
+  stderr?: Writable;
 };
 
 class PlaygroundTimeoutError extends Error {
@@ -106,6 +132,8 @@ async function runCommand(
     cwd: options.cwd,
     env: options.env,
     sudo: options.sudo,
+    stdout: options.stdout,
+    stderr: options.stderr,
   });
 }
 
@@ -140,7 +168,7 @@ async function commandAvailable(
   args: string[] = ['--version']
 ): Promise<boolean> {
   try {
-    const result = await runCommand(sandbox, cmd, args);
+    const result = await runCommand(sandbox, cmd, args, { env: SAFE_ENV });
     return result.exitCode === 0;
   } catch {
     return false;
@@ -169,7 +197,7 @@ async function ensureGo(sandbox: Sandbox): Promise<string> {
     throw new Error('Vercel Sandbox runtime is missing tar; cannot bootstrap Go');
   }
 
-  const machine = (await runChecked(sandbox, 'uname', ['-m'])).trim();
+  const machine = (await runChecked(sandbox, 'uname', ['-m'], { env: SAFE_ENV })).trim();
   let arch: 'amd64' | 'arm64';
   if (machine === 'x86_64' || machine === 'amd64') {
     arch = 'amd64';
@@ -197,16 +225,16 @@ async function ensureGo(sandbox: Sandbox): Promise<string> {
     '})().catch(e=>{console.error(e.message||e);process.exit(1)});',
   ].join('');
 
-  await runChecked(sandbox, 'node', ['-e', downloader, url, tarball, expectedSha]);
-  await runChecked(sandbox, 'rm', ['-rf', GO_ROOT]);
-  await runChecked(sandbox, 'mkdir', ['-p', GO_ROOT]);
+  await runChecked(sandbox, 'node', ['-e', downloader, url, tarball, expectedSha], { env: SAFE_ENV });
+  await runChecked(sandbox, 'rm', ['-rf', GO_ROOT], { env: SAFE_ENV });
+  await runChecked(sandbox, 'mkdir', ['-p', GO_ROOT], { env: SAFE_ENV });
   await runChecked(sandbox, 'tar', [
     '-xzf',
     tarball,
     '-C',
     GO_ROOT,
     '--strip-components=1',
-  ]);
+  ], { env: SAFE_ENV });
 
   const goBin = `${GO_ROOT}/bin/go`;
   if (!(await commandAvailable(sandbox, goBin, ['version']))) {
@@ -285,31 +313,30 @@ async function setupGitPulseSource(
   }
 }
 
-async function setupScratchRepo(
-  sandbox: Sandbox,
-  command: string
-): Promise<void> {
-  if (!(await commandAvailable(sandbox, 'git', ['--version']))) {
-    throw new Error('Vercel Sandbox image does not provide git');
-  }
-  if (!(await commandAvailable(sandbox, 'node', ['--version']))) {
-    throw new Error('Vercel Sandbox image does not provide Node.js');
-  }
+async function writePlaygroundConfig(sandbox: Sandbox): Promise<void> {
+  const configDir = `${SANDBOX_HOME}/.gitpulse`;
+  const configPath = `${configDir}/config.yaml`;
+  await runChecked(sandbox, 'mkdir', ['-p', configDir], { env: SAFE_ENV });
 
-  await runChecked(sandbox, 'rm', [
-    '-rf',
-    SCRATCH_DIR,
-    SOURCE_DIR,
-    BIN_DIR,
-    SANDBOX_HOME,
-    FAKE_ORIGIN,
+  const config = [
+    'enabled: false',
+    `repository_path: "${SCRATCH_DIR}"`,
+    'remote_branch: "main"',
+    'commits_per_day: 2',
+    'dry_run: true',
+    'push_remote: "origin"',
+    '',
+  ].join('\n');
+
+  await sandbox.writeFiles([
+    {
+      path: configPath,
+      content: Buffer.from(config, 'utf8'),
+    },
   ]);
-  await runChecked(sandbox, 'mkdir', ['-p', SCRATCH_DIR, BIN_DIR, SANDBOX_HOME]);
+}
 
-  await assertNoGitHubCredentials(sandbox);
-  const goBin = await ensureGo(sandbox);
-  await setupGitPulseSource(sandbox, goBin);
-
+async function initializeScratchRepo(sandbox: Sandbox): Promise<void> {
   await runChecked(sandbox, 'git', ['init'], { cwd: SCRATCH_DIR, env: SAFE_ENV });
   await runChecked(sandbox, 'git', ['branch', '-M', 'main'], {
     cwd: SCRATCH_DIR,
@@ -355,7 +382,9 @@ async function setupScratchRepo(
     cwd: SCRATCH_DIR,
     env: SAFE_ENV,
   });
+}
 
+async function verifyScratchOrigin(sandbox: Sandbox): Promise<void> {
   const remote = (
     await runChecked(sandbox, 'git', ['remote', 'get-url', 'origin'], {
       cwd: SCRATCH_DIR,
@@ -365,52 +394,149 @@ async function setupScratchRepo(
   if (remote !== FAKE_ORIGIN) {
     throw new Error('Scratch repository origin is not the disposable local bare repository');
   }
-
-  // Seed every non-init command with a valid sandbox-local GitPulse config.
-  // The execution remains disposable and dry-run by default.
-  if (command !== 'init') {
-    const configDir = `${SANDBOX_HOME}/.gitpulse`;
-    const configPath = `${configDir}/config.yaml`;
-    await runChecked(sandbox, 'mkdir', ['-p', configDir], { env: SAFE_ENV });
-
-    const config = [
-      'enabled: false',
-      `repository_path: "${SCRATCH_DIR}"`,
-      'remote_branch: "main"',
-      'commits_per_day: 2',
-      'dry_run: true',
-      'push_remote: "origin"',
-      '',
-    ].join('\n');
-
-    await sandbox.writeFiles([
-      {
-        path: configPath,
-        content: Buffer.from(config, 'utf8'),
-      },
-    ]);
-  }
-
 }
 
-async function createSandbox(): Promise<Sandbox> {
-  const pending = Sandbox.create({
-    runtime: 'node24',
-    persistent: false,
-    timeout: SANDBOX_TIMEOUT_MS,
-    env: SAFE_ENV,
-    tags: {
-      app: 'gitpulse',
-      purpose: 'playground',
-    },
-  });
+async function setupFreshSandbox(
+  sandbox: Sandbox,
+  command: string
+): Promise<void> {
+  if (!(await commandAvailable(sandbox, 'git', ['--version']))) {
+    throw new Error('Vercel Sandbox image does not provide git');
+  }
+  if (!(await commandAvailable(sandbox, 'node', ['--version']))) {
+    throw new Error('Vercel Sandbox image does not provide Node.js');
+  }
 
+  await runChecked(sandbox, 'rm', [
+    '-rf',
+    SCRATCH_DIR,
+    SOURCE_DIR,
+    BIN_DIR,
+    SANDBOX_HOME,
+    FAKE_ORIGIN,
+  ], { env: SAFE_ENV });
+  await runChecked(sandbox, 'mkdir', ['-p', SCRATCH_DIR, BIN_DIR, SANDBOX_HOME], { env: SAFE_ENV });
+
+  await assertNoGitHubCredentials(sandbox);
+  const goBin = await ensureGo(sandbox);
+  await setupGitPulseSource(sandbox, goBin);
+  await initializeScratchRepo(sandbox);
+  await verifyScratchOrigin(sandbox);
+
+  if (command !== 'init') {
+    await writePlaygroundConfig(sandbox);
+  }
+}
+
+async function verifySnapshotRuntime(sandbox: Sandbox): Promise<void> {
+  if (!PLAYGROUND_RUNTIME.snapshotId) {
+    throw new Error('Playground runtime snapshot is not configured');
+  }
+  const readMarker = 'const fs=require("fs");process.stdout.write(fs.readFileSync(process.argv[1],"utf8"))';
+  const markerRaw = await runChecked(sandbox, 'node', ['-e', readMarker, RUNTIME_MARKER], { env: SAFE_ENV });
+  let marker: {
+    schemaVersion?: number;
+    sourceCommit?: string;
+    binarySha256?: string;
+  };
   try {
-    return await withTimeout(
-      pending,
-      CREATE_TIMEOUT_MS,
-      'Vercel Sandbox creation timed out'
-    );
+    marker = JSON.parse(markerRaw);
+  } catch {
+    throw new Error('Runtime snapshot marker is invalid JSON');
+  }
+
+  if (marker.schemaVersion !== RUNTIME_SCHEMA_VERSION) {
+    throw new Error('Runtime snapshot schema is incompatible');
+  }
+  if (
+    PLAYGROUND_RUNTIME.sourceCommit &&
+    marker.sourceCommit !== PLAYGROUND_RUNTIME.sourceCommit
+  ) {
+    throw new Error('Runtime snapshot source commit does not match this deployment');
+  }
+  if (
+    PLAYGROUND_RUNTIME.binarySha256 &&
+    marker.binarySha256 !== PLAYGROUND_RUNTIME.binarySha256
+  ) {
+    throw new Error('Runtime snapshot binary marker does not match this deployment');
+  }
+
+  const shaScript =
+    'const fs=require("fs"),c=require("crypto");process.stdout.write(c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))';
+  const actualSha = (
+    await runChecked(sandbox, 'node', ['-e', shaScript, GITPULSE_BIN], {
+      env: SAFE_ENV,
+    })
+  ).trim();
+
+  if (!marker.binarySha256 || actualSha !== marker.binarySha256) {
+    throw new Error('Runtime snapshot GitPulse binary checksum mismatch');
+  }
+  if (!(await commandAvailable(sandbox, GITPULSE_BIN, ['version']))) {
+    throw new Error('Runtime snapshot GitPulse binary is unavailable');
+  }
+}
+
+async function resetSnapshotScratchRepo(
+  sandbox: Sandbox,
+  command: string
+): Promise<void> {
+  await runChecked(sandbox, 'git', ['checkout', 'main'], {
+    cwd: SCRATCH_DIR,
+    env: SAFE_ENV,
+  });
+  await runChecked(sandbox, 'git', ['reset', '--hard', 'HEAD'], {
+    cwd: SCRATCH_DIR,
+    env: SAFE_ENV,
+  });
+  await runChecked(sandbox, 'git', ['clean', '-fdx'], {
+    cwd: SCRATCH_DIR,
+    env: SAFE_ENV,
+  });
+  await verifyScratchOrigin(sandbox);
+
+  if (command === 'init') {
+    await runChecked(sandbox, 'rm', ['-rf', `${SANDBOX_HOME}/.gitpulse`], {
+      env: SAFE_ENV,
+    });
+  } else {
+    await writePlaygroundConfig(sandbox);
+  }
+}
+
+async function createSandbox(): Promise<{ sandbox: Sandbox; usedSnapshot: boolean }> {
+  const usedSnapshot = Boolean(PLAYGROUND_RUNTIME.snapshotId);
+  const options = usedSnapshot
+    ? {
+        source: {
+          type: 'snapshot' as const,
+          snapshotId: PLAYGROUND_RUNTIME.snapshotId!,
+        },
+        persistent: false,
+        region: PLAYGROUND_RUNTIME.region,
+        timeout: SANDBOX_TIMEOUT_MS,
+        env: SAFE_ENV,
+        tags: { app: 'gitpulse', purpose: 'playground' },
+      }
+    : {
+        runtime: 'node24' as const,
+        persistent: false,
+        region: PLAYGROUND_RUNTIME.region,
+        timeout: SANDBOX_TIMEOUT_MS,
+        env: SAFE_ENV,
+        tags: { app: 'gitpulse', purpose: 'playground-cold-fallback' },
+      };
+
+  const pending = Sandbox.create(options);
+  try {
+    return {
+      sandbox: await withTimeout(
+        pending,
+        CREATE_TIMEOUT_MS,
+        'Vercel Sandbox creation timed out'
+      ),
+      usedSnapshot,
+    };
   } catch (error) {
     if (error instanceof PlaygroundTimeoutError) {
       void pending
@@ -429,33 +555,98 @@ async function createSandbox(): Promise<Sandbox> {
   }
 }
 
+function createCapture(
+  sink: ((data: string) => void) | undefined
+): { writable: Writable; text: () => string } {
+  const chunks: string[] = [];
+  let bytes = 0;
+  let truncated = false;
+
+  const writable = new Writable({
+    write(chunk, _encoding, callback) {
+      try {
+        let data = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+        const remaining = MAX_CAPTURE_BYTES - bytes;
+        if (remaining <= 0) {
+          if (!truncated) {
+            const notice = '\n[output truncated by playground]\n';
+            chunks.push(notice);
+            sink?.(notice);
+            truncated = true;
+          }
+          callback();
+          return;
+        }
+
+        const encoded = Buffer.from(data);
+        if (encoded.length > remaining) {
+          data = encoded.subarray(0, remaining).toString('utf8');
+          truncated = true;
+        }
+        bytes += Buffer.byteLength(data);
+        chunks.push(data);
+        sink?.(data);
+        if (truncated) {
+          const notice = '\n[output truncated by playground]\n';
+          chunks.push(notice);
+          sink?.(notice);
+        }
+        callback();
+      } catch (error) {
+        callback(error as Error);
+      }
+    },
+  });
+
+  return { writable, text: () => chunks.join('') };
+}
+
 export async function runSandboxCommand(
   command: string,
   args: string[],
-  onReady?: () => Promise<void> | void
+  hooks: SandboxHooks = {}
 ): Promise<SandboxCommandResult> {
+  const totalStarted = performance.now();
   let sandbox: Sandbox | null = null;
   let executionStarted = false;
+  let usedSnapshot = false;
+  const timings: PlaygroundTimings = {
+    sandboxCreateMs: 0,
+    runtimeVerifyMs: 0,
+    scratchRepoMs: 0,
+    executionMs: 0,
+    cleanupMs: 0,
+    totalMs: 0,
+    usedSnapshot: false,
+  };
   let result: SandboxCommandResult = {
     state: 'START_FAILED',
     stdout: '',
     stderr: '',
+    timings,
   };
 
   try {
+    const createStarted = performance.now();
     try {
-      sandbox = await createSandbox();
+      hooks.onProgress?.(
+        'sandbox',
+        PLAYGROUND_RUNTIME.snapshotId
+          ? 'Restoring prepared GitPulse runtime…'
+          : 'Starting clean GitPulse runtime…'
+      );
+      const created = await createSandbox();
+      sandbox = created.sandbox;
+      usedSnapshot = created.usedSnapshot;
+      timings.usedSnapshot = usedSnapshot;
+      timings.sandboxCreateMs = performance.now() - createStarted;
     } catch (error) {
       result = {
-        state:
-          error instanceof PlaygroundTimeoutError
-            ? 'TIMED_OUT'
-            : executionStarted
-              ? 'FAILED'
-              : 'START_FAILED',
+        state: error instanceof PlaygroundTimeoutError ? 'TIMED_OUT' : 'START_FAILED',
         stdout: '',
         stderr: '',
         error: error instanceof Error ? error.message : String(error),
+        timings,
       };
       return result;
     }
@@ -463,9 +654,32 @@ export async function runSandboxCommand(
     try {
       result = await withTimeout(
         (async () => {
-          await setupScratchRepo(sandbox!, command);
-          await onReady?.();
+          const verifyStarted = performance.now();
+          if (usedSnapshot) {
+            hooks.onProgress?.('runtime', 'Verifying GitPulse runtime…');
+            await assertNoGitHubCredentials(sandbox!);
+            await verifySnapshotRuntime(sandbox!);
+          } else {
+            hooks.onProgress?.('runtime', 'Preparing GitPulse cold fallback…');
+          }
+          timings.runtimeVerifyMs = performance.now() - verifyStarted;
+
+          const scratchStarted = performance.now();
+          hooks.onProgress?.('repository', 'Preparing disposable Git repository…');
+          if (usedSnapshot) {
+            await resetSnapshotScratchRepo(sandbox!, command);
+          } else {
+            await setupFreshSandbox(sandbox!, command);
+          }
+          timings.scratchRepoMs = performance.now() - scratchStarted;
+
+          await hooks.onReady?.();
           executionStarted = true;
+          hooks.onProgress?.('command', `Running gitpulse ${command}…`);
+
+          const stdoutCapture = createCapture(hooks.onStdout);
+          const stderrCapture = createCapture(hooks.onStderr);
+          const executionStartedAt = performance.now();
 
           let commandResult;
           try {
@@ -476,25 +690,33 @@ export async function runSandboxCommand(
               {
                 cwd: SCRATCH_DIR,
                 env: SAFE_ENV,
+                stdout: stdoutCapture.writable,
+                stderr: stderrCapture.writable,
               }
             );
           } catch (error) {
+            timings.executionMs = performance.now() - executionStartedAt;
             return {
               state: 'FAILED' as const,
-              stdout: '',
-              stderr: '',
+              stdout: stdoutCapture.text(),
+              stderr: stderrCapture.text(),
               error:
                 error instanceof Error
                   ? `GitPulse command could not start: ${error.message}`
                   : 'GitPulse command could not start',
+              timings,
             };
           }
 
-          const stdout = await commandResult.stdout();
-          const stderr = await commandResult.stderr();
+          timings.executionMs = performance.now() - executionStartedAt;
+          const stdout = stdoutCapture.text();
+          const stderr = stderrCapture.text();
 
           return {
-            state: commandResult.exitCode === 0 ? ('SUCCEEDED' as const) : ('FAILED' as const),
+            state:
+              commandResult.exitCode === 0
+                ? ('SUCCEEDED' as const)
+                : ('FAILED' as const),
             exitCode: commandResult.exitCode,
             stdout,
             stderr,
@@ -502,6 +724,7 @@ export async function runSandboxCommand(
               commandResult.exitCode === 0
                 ? undefined
                 : stderr.trim() || `GitPulse exited with code ${commandResult.exitCode}`,
+            timings,
           };
         })(),
         MAX_SESSION_SECONDS * 1000,
@@ -510,14 +733,22 @@ export async function runSandboxCommand(
     } catch (error) {
       result = {
         state:
-          error instanceof PlaygroundTimeoutError ? 'TIMED_OUT' : 'START_FAILED',
-        stdout: '',
-        stderr: '',
+          error instanceof PlaygroundTimeoutError
+            ? 'TIMED_OUT'
+            : executionStarted
+              ? 'FAILED'
+              : 'START_FAILED',
+        stdout: result.stdout || '',
+        stderr: result.stderr || '',
         error: error instanceof Error ? error.message : String(error),
+        timings,
       };
     }
   } finally {
     if (sandbox) {
+      hooks.onCleanup?.();
+      hooks.onProgress?.('cleanup', 'Disposing sandbox…');
+      const cleanupStarted = performance.now();
       try {
         await withTimeout(
           sandbox.delete(),
@@ -530,7 +761,10 @@ export async function runSandboxCommand(
             ? cleanupError.message
             : String(cleanupError);
       }
+      timings.cleanupMs = performance.now() - cleanupStarted;
     }
+    timings.totalMs = performance.now() - totalStarted;
+    result.timings = timings;
   }
 
   return result;

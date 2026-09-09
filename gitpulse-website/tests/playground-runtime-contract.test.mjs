@@ -68,7 +68,8 @@ test('only pnpm lockfile is used for the website', () => {
 test('timeout and cleanup result states are represented explicitly', () => {
   assert.match(route, /lifecycleState:\s*'DISPOSED'/);
   assert.match(route, /CLEANUP_FAILED/);
-  assert.match(route, /TIMED_OUT/);
+  assert.match(route, /resultState/);
+  assert.match(sandbox, /TIMED_OUT/);
   assert.match(sandbox, /PlaygroundTimeoutError/);
 });
 

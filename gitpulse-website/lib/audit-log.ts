@@ -16,6 +16,7 @@
 //     intentional so we never write audit data to the developer's disk.
 
 import { kv } from '@vercel/kv';
+import { withOptionalStorageTimeout } from './optional-storage';
 
 const KV_PREFIX = 'audit:event:';
 const TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days
@@ -131,7 +132,10 @@ export async function appendAuditEvent(input: AuditEventInput): Promise<void> {
   if (kvAvailable()) {
     try {
       const dayKey = event.occurredAt.slice(0, 10);
-      await kv.set(`${KV_PREFIX}${dayKey}:${event.id}`, JSON.stringify(event), { ex: TTL_SECONDS });
+      await withOptionalStorageTimeout(
+        kv.set(`${KV_PREFIX}${dayKey}:${event.id}`, JSON.stringify(event), { ex: TTL_SECONDS }),
+        'audit event write'
+      );
       return;
     } catch (error) {
       console.warn('[audit] KV write failed, falling back to memory ring:', error);
@@ -147,13 +151,21 @@ export async function appendAuditEvent(input: AuditEventInput): Promise<void> {
 export async function readAuditEventsForDay(day: string): Promise<AuditEvent[]> {
   if (!kvAvailable()) return [];
   try {
-    const list = await kv.keys(`${KV_PREFIX}${day}:*`);
+    const list = await withOptionalStorageTimeout(
+      kv.keys(`${KV_PREFIX}${day}:*`),
+      'audit event key read'
+    );
     if (!list.length) return [];
-    const values = await kv.mget<string[]>(...list);
+    const values = (await withOptionalStorageTimeout(
+      kv.mget<string[]>(...list),
+      'audit event batch read'
+    )) as Array<string | null>;
     return values
-      .filter((v): v is string => typeof v === 'string')
-      .map((v) => JSON.parse(v) as AuditEvent)
-      .sort((a, b) => (a.occurredAt < b.occurredAt ? 1 : -1));
+      .filter((v: string | null): v is string => typeof v === 'string')
+      .map((v: string) => JSON.parse(v) as AuditEvent)
+      .sort((a: AuditEvent, b: AuditEvent) =>
+        a.occurredAt < b.occurredAt ? 1 : -1
+      );
   } catch (error) {
     console.warn('[audit] KV read failed:', error);
     return [];

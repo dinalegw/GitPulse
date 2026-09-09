@@ -4,11 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "pnpm run prepare:playground-runtime && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "prepare:playground-runtime": "node scripts/playground/create-runtime-snapshot.mjs"
   },
   "dependencies": {
     "@vercel/kv": "^3.0.0",
