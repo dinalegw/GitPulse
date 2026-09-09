@@ -9,13 +9,13 @@ const sandbox = readFileSync(new URL('../lib/sandbox.ts', import.meta.url), 'utf
 const snapshot = readFileSync(new URL('../scripts/playground/create-runtime-snapshot.mjs', import.meta.url), 'utf8');
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
-test('terminal owns one dedicated xterm mount and replays authoritative output', () => {
-  assert.match(terminal, /ref=\{mountRef\}/);
-  assert.match(terminal, /term\.open\(mountRef\.current\)/);
-  assert.match(terminal, /outputRef\.current/);
-  assert.match(terminal, /renderedOutputRef\.current/);
-  assert.match(terminal, /if \(initial\) term\.write\(initial\)/);
-  assert.match(terminal, /\}, \[\]\);/);
+test('terminal renders the authoritative output directly in visible DOM', () => {
+  assert.match(terminal, /<pre/);
+  assert.match(terminal, /\{desiredOutput/);
+  assert.match(terminal, /data-testid="playground-terminal-output"/);
+  assert.match(terminal, /role="log"/);
+  assert.doesNotMatch(terminal, /import\('xterm'\)/);
+  assert.doesNotMatch(terminal, /term\.open\(/);
 });
 
 test('playground consumes one-request NDJSON and buffers live stdout/stderr', () => {
