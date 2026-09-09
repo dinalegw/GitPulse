@@ -20,7 +20,7 @@ import { canTransition, isTerminal } from './playground-state';
 
 const KV_RUN_PREFIX = 'playground:run:';
 const KV_IDEMP_PREFIX = 'playground:idemp:';
-const RUN_TTL_SECONDS = 60 * 60 * 2; // 2 hours, matches max session window
+const RUN_TTL_SECONDS = 60 * 60 * 2; // retain run history for 2 hours
 
 export interface PlaygroundRun {
   runId: string;
@@ -222,9 +222,10 @@ export async function transitionState(runId: string, to: PlaygroundState, meta?:
   return run;
 }
 
-// cleanupStuckRuns finds runs whose state is non-terminal but whose
-// updatedAt is older than maxAgeMs and forces them through CLEANUP -> DISPOSED.
-// This is the orphan-sandbox sweeper. Idempotent.
+// cleanupStuckRuns repairs stale run metadata whose state is non-terminal.
+// Sandbox resources are not looked up here: one-shot execution owns and
+// deletes its sandbox directly, and the Vercel sandbox timeout is a final
+// infrastructure backstop. Idempotent.
 export async function cleanupStuckRuns(maxAgeMs: number): Promise<number> {
   const cutoff = Date.now() - maxAgeMs;
   let cleaned = 0;
