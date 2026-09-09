@@ -1,17 +1,17 @@
 export const OPTIONAL_STORAGE_TIMEOUT_MS = 300;
 
 export class OptionalStorageTimeoutError extends Error {
-  constructor(label: string) {
+  constructor(label) {
     super(`${label} timed out`);
     this.name = 'OptionalStorageTimeoutError';
   }
 }
 
-export async function withOptionalStorageTimeout<T>(
-  promise: Promise<T>,
-  label: string,
+export async function withOptionalStorageTimeout(
+  promise,
+  label,
   milliseconds = OPTIONAL_STORAGE_TIMEOUT_MS
-): Promise<T> {
+) {
   let timer;
   try {
     return await Promise.race([
