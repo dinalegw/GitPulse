@@ -1,0 +1,96 @@
+name: Playground production audit
+
+on:
+  push:
+    branches:
+      - audit/playground-production-hardening-20260909
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exercise production playground API
+        env:
+          PLAYGROUND_URL: https://start-gitpulse.vercel.app/api/playground/run
+        run: |
+          python3 - <<'PY'
+          import json, os, time, uuid, urllib.request, urllib.error
+
+          url = os.environ['PLAYGROUND_URL']
+          cases = [
+              ('version', 'version', []),
+              ('status', 'status', []),
+              ('validate', 'validate', []),
+              ('run-dry', 'run', ['--dry-run', '--count', '2']),
+              ('init-dry', 'init', ['--dry-run']),
+          ]
+
+          infrastructure_failure = False
+          summaries = []
+          for name, command, args in cases:
+              token = str(uuid.uuid4())
+              payload = json.dumps({
+                  'sessionId': f'audit_{token}',
+                  'command': command,
+                  'args': args,
+                  'idempotencyKey': token,
+              }).encode()
+              req = urllib.request.Request(
+                  url,
+                  data=payload,
+                  headers={
+                      'Content-Type': 'application/json',
+                      'User-Agent': 'GitPulse-production-audit/1.0',
+                  },
+                  method='POST',
+              )
+              status = None
+              body = ''
+              try:
+                  with urllib.request.urlopen(req, timeout=180) as response:
+                      status = response.status
+                      body = response.read().decode('utf-8', errors='replace')
+              except urllib.error.HTTPError as exc:
+                  status = exc.code
+                  body = exc.read().decode('utf-8', errors='replace')
+              except Exception as exc:
+                  infrastructure_failure = True
+                  summaries.append({'name': name, 'transportError': str(exc)})
+                  print(json.dumps(summaries[-1], indent=2))
+                  continue
+
+              try:
+                  parsed = json.loads(body)
+              except Exception:
+                  parsed = {'rawBody': body[:4000]}
+
+              summary = {
+                  'name': name,
+                  'command': command,
+                  'args': args,
+                  'httpStatus': status,
+                  'state': parsed.get('state'),
+                  'lifecycleState': parsed.get('lifecycleState'),
+                  'resultState': parsed.get('resultState'),
+                  'exitCode': parsed.get('exitCode'),
+                  'output': parsed.get('output'),
+                  'stderr': parsed.get('stderr'),
+                  'error': parsed.get('error'),
+                  'cleanupWarning': parsed.get('cleanupWarning'),
+              }
+              summaries.append(summary)
+              print(json.dumps(summary, indent=2))
+
+              if status >= 500 or parsed.get('state') in {'START_FAILED', 'TIMED_OUT', 'CLEANUP_FAILED'}:
+                  infrastructure_failure = True
+              time.sleep(2)
+
+          print('\n=== JSON SUMMARY ===')
+          print(json.dumps(summaries, indent=2))
+          if infrastructure_failure:
+              raise SystemExit('production smoke exposed an infrastructure failure')
+          PY
