@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import {
   buildAuthorizeUrl,
   generateState,
@@ -8,16 +8,19 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const { state } = generateState();
     await setOAuthStateCookie(state);
-    const authorizeUrl = buildAuthorizeUrl(state);
-    return NextResponse.redirect(authorizeUrl);
+    const redirectUri = new URL('/api/auth/callback', request.url).toString();
+    return NextResponse.redirect(buildAuthorizeUrl(state, redirectUri));
   } catch (error) {
-    if (error instanceof GitHubOAuthError) {
-      return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
-    }
-    return NextResponse.json({ error: 'oauth_login_failed' }, { status: 500 });
+    const code =
+      error instanceof GitHubOAuthError
+        ? error.code
+        : 'oauth_login_failed';
+    return NextResponse.redirect(
+      new URL(`/connect?error=${encodeURIComponent(code)}`, request.url)
+    );
   }
 }
