@@ -156,14 +156,16 @@ export async function readAuditEventsForDay(day: string): Promise<AuditEvent[]> 
       'audit event key read'
     );
     if (!list.length) return [];
-    const values = await withOptionalStorageTimeout(
+    const values = (await withOptionalStorageTimeout(
       kv.mget<string[]>(...list),
       'audit event batch read'
-    );
+    )) as Array<string | null>;
     return values
-      .filter((v): v is string => typeof v === 'string')
-      .map((v) => JSON.parse(v) as AuditEvent)
-      .sort((a, b) => (a.occurredAt < b.occurredAt ? 1 : -1));
+      .filter((v: string | null): v is string => typeof v === 'string')
+      .map((v: string) => JSON.parse(v) as AuditEvent)
+      .sort((a: AuditEvent, b: AuditEvent) =>
+        a.occurredAt < b.occurredAt ? 1 : -1
+      );
   } catch (error) {
     console.warn('[audit] KV read failed:', error);
     return [];
