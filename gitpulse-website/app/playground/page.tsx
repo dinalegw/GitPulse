@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/Select';
-import { PLAYGROUND_COMMANDS } from '@/lib/commands';
+import { DOCS_ONLY, PLAYGROUND_COMMANDS } from '@/lib/commands';
 import {
   PLAYGROUND_STATES,
   isActive,
@@ -209,6 +209,7 @@ function PlaygroundContent() {
   const searchParams = useSearchParams();
   const [selectedCommand, setSelectedCommand] = useState<string>('run');
   const [args, setArgs] = useState<string>('');
+  const [terminalCommand, setTerminalCommand] = useState<string>('');
   const [state, setState] = useState<PlaygroundState>('DISPOSED');
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -255,6 +256,51 @@ function PlaygroundContent() {
     setTimings(null);
     setSessionId(null);
     setState('DISPOSED');
+  };
+
+  const handleTerminalCommand = () => {
+    const input = terminalCommand.trim();
+    if (!input) return;
+
+    let tokens: string[];
+    try {
+      tokens = tokenizeArgs(input);
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : 'Invalid command');
+      return;
+    }
+
+    if (tokens[0] !== 'gitpulse') {
+      replaceOutput(
+        `$ ${input}\n\nThis browser playground runs GitPulse commands only, inside a disposable demo repository. It cannot safely run arbitrary code or access your computer, files, or GitHub account.\n\nFor \`go run .\`, run that command locally in the repository you own. To try GitPulse here, enter a command such as \`gitpulse status\` or \`gitpulse run --dry-run --count 2\`.\n`
+      );
+      setError(null);
+      setState('DISPOSED');
+      return;
+    }
+
+    if (tokens.length < 2) {
+      replaceOutput(
+        `$ ${input}\n\n\`gitpulse\` with no arguments starts an interactive local-terminal wizard. The browser demo does not collect terminal answers. Choose a command below, or run \`gitpulse\` locally.\n`
+      );
+      setError(null);
+      setState('DISPOSED');
+      return;
+    }
+
+    const next = COMMAND_OPTIONS.find((command) => command.value === tokens[1]);
+    if (!next) {
+      replaceOutput(
+        `$ ${input}\n\nThat is not a runnable GitPulse browser command. Use one of the commands in the selector, or run the full command in your local terminal.\n`
+      );
+      setError(null);
+      setState('DISPOSED');
+      return;
+    }
+
+    handleCommandChange(next.value);
+    setArgs(tokens.slice(2).join(' '));
+    setTerminalCommand('');
   };
 
   const handleRun = async (freshExecution = false) => {
@@ -549,11 +595,37 @@ function PlaygroundContent() {
                   Select Command
                 </CardTitle>
                 <CardDescription>
-                  Choose a GitPulse command to run safely inside a disposable
-                  Vercel Sandbox.
+                  Try GitPulse commands in a disposable demo repository. The
+                  browser never receives access to your computer or GitHub account.
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="mb-5 flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-sm text-text-muted mb-1">
+                      Terminal-style command
+                    </label>
+                    <input
+                      type="text"
+                      value={terminalCommand}
+                      onChange={(e) => setTerminalCommand(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleTerminalCommand();
+                      }}
+                      className="input-field font-mono text-sm"
+                      placeholder="e.g. gitpulse run --dry-run --count 2"
+                      disabled={runInFlight}
+                    />
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={handleTerminalCommand}
+                    disabled={runInFlight || !terminalCommand.trim()}
+                    className="sm:self-end whitespace-nowrap"
+                  >
+                    Use Command
+                  </Button>
+                </div>
                 <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
                   <Select
                     value={selectedCommand}
@@ -606,6 +678,33 @@ function PlaygroundContent() {
                     </Button>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="text-lg">Local terminal commands</CardTitle>
+                <CardDescription>
+                  These GitPulse features remain available locally but are not run
+                  in the public browser sandbox because they need interactive input
+                  or stay running until you stop them.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2 text-sm text-text-muted">
+                  {DOCS_ONLY.map((command) => (
+                    <li key={command.name}>
+                      <code className="font-mono text-text-primary">
+                        {command.name === 'quick-wizard' ? 'gitpulse' : 'gitpulse run --schedule'}
+                      </code>
+                      <span> — {command.description}</span>
+                    </li>
+                  ))}
+                  <li>
+                    <code className="font-mono text-text-primary">go run .</code>
+                    <span> — run GitPulse from its source code in your local terminal.</span>
+                  </li>
+                </ul>
               </CardContent>
             </Card>
 
