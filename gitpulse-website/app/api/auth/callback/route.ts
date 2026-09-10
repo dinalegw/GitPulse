@@ -8,6 +8,7 @@ import {
   readOAuthStateCookie,
   clearOAuthStateCookie,
   GitHubOAuthError,
+  getGitHubRedirectUri,
   type AuthSession,
 } from '@/lib/github-oauth';
 import { appendAuditEvent } from '@/lib/audit-log';
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
   await clearOAuthStateCookie();
 
   try {
-    const redirectUri = new URL('/api/auth/callback', request.url).toString();
+    const redirectUri = getGitHubRedirectUri();
     const accessToken = await exchangeCodeForToken(code, state, expectedState, redirectUri);
     recordAuthorizationCode();
     const { user, scopes } = await fetchUserIdentity(accessToken);
