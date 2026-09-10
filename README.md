@@ -36,7 +36,7 @@ Git automation should be predictable before it is powerful.
 
 **[Open the GitPulse Playground](https://start-gitpulse.vercel.app/playground)** · **[Explore the Docs](https://start-gitpulse.vercel.app/docs)**
 
-The playground is for exploration. GitHub authorization is not required for the public demo; operating on a repository you own requires explicit authorization.
+The playground is for exploration and uses only a disposable demo repository. GitHub sign-in is optional and currently verifies identity plus available GitHub App installations; it does not run GitPulse against a user repository. To operate on your own repository today, install the local CLI and use your existing Git credentials.
 
 ## Install
 
@@ -109,7 +109,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and the [developer documentation](https:/
 
 ## Web platform
 
-The `gitpulse-website/` directory contains the public website and browser playground. The hosted backend for authenticated GitHub automation is intentionally separated from the open-source CLI; see [docs/open-source-boundary.md](docs/open-source-boundary.md).
+The `gitpulse-website/` directory contains the public website, browser playground, and optional GitHub identity connection. Authenticated hosted repository automation is a future capability and is not shipped by this repository; see [docs/open-source-boundary.md](docs/open-source-boundary.md).
 
 **Live site:** https://start-gitpulse.vercel.app/
 

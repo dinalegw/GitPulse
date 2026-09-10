@@ -4,9 +4,8 @@
 // `getAuthorization`) at the top. The helper:
 //
 //   1. Reads the session cookie.
-//   2. Loads the session from the server-side store.
-//   3. Confirms the GitHub installation is still reachable for the user.
-//   4. Verifies the requested feature is in the user's entitlement set.
+//   2. Reads installation ids captured during the most recent GitHub login.
+//   3. Verifies the requested feature is in the user's entitlement set.
 //
 // Calling the helper at the top of every handler is the canonical way to
 // enforce the " authenticated + authorized + selected + action " chain.
@@ -76,10 +75,10 @@ export async function requireFeature(feature: FeatureId): Promise<AuthorizationC
   return ctx;
 }
 
-// requireInstallationAccess verifies the user has at least one GitHub
-// installation linked and that a specific repository belongs to one of
-// those installations. This prevents a malicious browser from
-// referencing a repository_id they do not actually own.
+// requireInstallationAccess verifies that an installation id was captured
+// during the current login. A future repository-operation backend must also
+// obtain a fresh installation token and verify the target repository with
+// GitHub before acting; this cached id check is not sufficient by itself.
 export async function requireInstallationAccess(installationId: number): Promise<AuthorizationContext> {
   const ctx = await requireAuthentication();
   if (!ctx.installationIds.includes(installationId)) {

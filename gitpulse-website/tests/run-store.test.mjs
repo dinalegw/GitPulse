@@ -1,6 +1,6 @@
 // Tests for the run-store idempotency contract.
 //
-// The real store is implemented in TypeScript and depends on @vercel/kv.
+// The real store is implemented in TypeScript and can use Upstash Redis.
 // This test file does not import it directly; instead it re-implements the
 // idempotency-key normalization in plain JavaScript and asserts the
 // contract that must hold for both implementations.

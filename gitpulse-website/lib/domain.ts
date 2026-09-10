@@ -1,11 +1,8 @@
-// Domain model for the GitPulse hosted platform.
+// Proposed domain contracts for a future GitPulse hosted platform.
 //
-// These types describe the *shape* of the entities that will live in the
-// production database once the platform ships. They are TypeScript
-// interfaces, not runtime classes — the implementation that hydrates
-// them from the database lives in `lib/db/` (out of scope today; the
-// real backing store will be Postgres via Vercel Postgres or a managed
-// instance, with KV caching in front for hot reads).
+// These TypeScript interfaces are roadmap scaffolding only. The current
+// website does not have an account database, billing system, workspace
+// service, or hosted repository runner.
 //
 // What is *deliberately* omitted:
 //   - Passwords. GitPulse never stores passwords.
@@ -124,9 +121,8 @@ export interface RunStep extends EntityMeta {
 
 export interface SandboxSession extends EntityMeta {
   runId: string;
-  // The provider (E2B) sandbox id is intentionally NOT stored here.
-  // The platform's privacy model is that sandbox ids live in a
-  // short-lived cache with TTL and never reach durable storage.
+  // Provider sandbox identifiers are intentionally omitted from this
+  // proposed durable contract.
   ipHash: string;
   command: string;
   args: string[];

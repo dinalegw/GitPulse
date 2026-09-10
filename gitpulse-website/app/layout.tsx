@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import 'xterm/css/xterm.css';
 
 const SITE_URL = 'https://start-gitpulse.vercel.app';
 

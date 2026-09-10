@@ -2,10 +2,9 @@
 
 ## Reporting a vulnerability
 
-Please do **not** open a public issue for security vulnerabilities. Report
-them privately to the maintainers by emailing
-`security@gitpulse.invalid` (to be replaced with a real address before the
-first public release).
+Please do **not** open a public issue for security vulnerabilities. Use a
+[private GitHub security advisory](https://github.com/dinalegw/GitPulse/security/advisories/new)
+to report them to the maintainers.
 
 Please include:
 
@@ -50,9 +49,21 @@ GitPulse takes the following measures by design:
   operation context so cancellation can terminate a running Git command.
 - **Input validation.** The configuration is validated before any execution;
   invalid configurations are rejected with actionable errors.
+- **Website credential isolation.** GitHub App authorization uses a validated
+  canonical callback, CSRF state cookie, and PKCE. The callback uses the GitHub user
+  token only for identity and installation lookup, then discards it. The
+  browser session is encrypted and stored in an HttpOnly cookie.
+- **Playground isolation.** The public playground accepts only allow-listed
+  commands, receives no GitHub credentials, uses a disposable demo repository
+  with a local fake origin, bounds output, and deletes its Vercel Sandbox.
+
+Never paste private keys, client secrets, tokens, OAuth codes, or session
+cookies into chat, source files, commits, or public issues. Rotate any secret
+that is accidentally disclosed.
 
 ## Scope
 
-The supported surface is the GitPulse binary and its configuration handling.
-Shell configuration of the user's environment (e.g. credential helpers) is
-outside GitPulse's control.
+The supported surface includes the GitPulse binary, configuration handling,
+public website, GitHub identity flow, and playground code in this repository.
+Shell configuration of the user's environment (for example credential
+helpers) and provider infrastructure are outside GitPulse's control.

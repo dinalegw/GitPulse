@@ -1,91 +1,36 @@
 # GitPulse Privacy
 
-GitPulse is built privacy-by-design. This document describes what data the
-hosted GitPulse website collects, why, how long it is retained, who can
-access it, and how it is deleted.
+This document describes the behavior currently implemented by the public website and CLI. Roadmap types in `gitpulse-website/lib/domain.ts` are not evidence of a shipped account database.
 
-The CLI is covered separately in [`SECURITY.md`](../SECURITY.md) and
-[`docs/github-push.md`](github-push.md); it does not contact the hosted
-platform at all and stores configuration only on the user's machine.
+## Local CLI
 
-## TL;DR
+The CLI runs locally and does not contact the GitPulse website for its core operation. Its configuration and logs stay on the user's machine. Git authentication is handled by the user's existing local Git setup.
 
-- We do not store GitHub passwords, personal access tokens, SSH keys,
-  OAuth client secrets, or repository contents.
-- We store only the minimum identity summary returned by GitHub OAuth
-  (user id, login, name, avatar, primary email).
-- Sandbox execution data lives in short-lived caches and is deleted at
-  most 24 hours after the run.
-- Audit events are retained for 90 days, with secrets automatically
-  redacted at write time.
+## Website data
 
-## What we collect
+| Data | Purpose | Storage and lifetime |
+| --- | --- | --- |
+| GitHub id, login, name, avatar URL, returned scope metadata, installation ids | Show the connected identity and installation count | Encrypted HttpOnly browser cookie, up to 8 hours |
+| OAuth state | Prevent cross-site request forgery during sign-in | HttpOnly browser cookie, up to 10 minutes |
+| Playground run metadata: ids, command, arguments, state, timing, client IP | Idempotency, debugging, cleanup, and abuse prevention | Optional Upstash Redis for up to 2 hours; otherwise process memory |
+| Rate-limit counters keyed by client IP | Abuse prevention | Optional Upstash Redis with short TTL; otherwise process memory |
+| Redacted audit metadata | Operational troubleshooting | Optional Upstash Redis with configured TTL; otherwise process memory |
+| Command output | Display the playground result | Streamed to the browser and bounded to 256 KiB; not written to the run or audit store |
 
-| Data | Source | Why | Retention |
-| --- | --- | --- | --- |
-| GitHub user id, login, display name, avatar URL | GitHub OAuth `/user` | Identify you in our database | Account lifetime |
-| Primary email address | GitHub OAuth `/user/emails` | Communicate about your account | Until you disconnect GitHub |
-| Granted OAuth scopes | GitHub OAuth response header | Display what you approved | 8 hours (session) |
-| GitHub installation ids | GitHub OAuth `/user/installations` | List repositories you can target | Until you disconnect GitHub |
-| Playgrounds run ids, command, args, state, timing | Local session + rate limiter | Operate the playground, prevent abuse | 2 hours |
-| Audit events | Server actions you take | Trace privileged operations | 90 days |
-| Rate-limit counters | Per-IP | Prevent abuse | 1 hour rolling |
+The GitHub user access token exists only during the callback requests to `/user` and `/user/installations`, then is discarded. The website does not call `/user/emails` and does not persist a GitHub password, personal access token, SSH key, OAuth token, or repository contents.
 
-We do **not** collect:
+The playground creates a disposable Vercel Sandbox with no GitHub credentials. It operates on a generated demo repository backed by a local fake origin. The sandbox is deleted in a `finally` cleanup path. It may access the public internet during cold bootstrap to download checksum-verified Go and GitPulse source; it is not described as air-gapped.
 
-- GitHub passwords
-- Personal access tokens
-- SSH private keys
-- Repository contents
-- The contents of any commits you push through GitPulse
-- The body of GitHub API responses (only metadata we need)
+## Optional storage
 
-## How data is stored
+`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` enable distributed metadata, audit, and rate-limit storage. Legacy `KV_REST_API_URL` and `KV_REST_API_TOKEN` names remain accepted during migration. Authentication sessions do not depend on Redis. Without Redis, these features fall back to per-process memory and are not consistent across serverless instances.
 
-| Tier | Storage | Encryption | Lifetime |
-| --- | --- | --- | --- |
-| Session | Vercel KV (Upstash Redis) | Encrypted at rest by Upstash | 8 hours |
-| Audit log | Vercel KV (Upstash Redis), 90-day TTL | Encrypted at rest by Upstash | 90 days |
-| Playground run state | Vercel KV | Encrypted at rest | 2 hours |
-| Rate-limit counters | Vercel KV | Encrypted at rest | 1 hour |
-| Sandbox output | E2B microVM (ephemeral) | E2B-managed isolation | Disposed at session end |
+## Sign-out and revocation
 
-In local development without KV, the platform falls back to an in-memory
-store. The in-memory store is intentionally non-persistent and is
-rebuilt on every function cold start. It never writes to disk.
+Posting to `/api/auth/disconnect` clears the encrypted GitPulse browser session and redirects to a visible signed-out page. Because the GitHub user token is deliberately not retained, GitHub-side installation removal is a separate action at [GitHub installation settings](https://github.com/settings/installations).
 
-## How secrets are handled
+There is no shipped GitPulse account database or `/api/account/delete` endpoint. If durable accounts are introduced later, their data deletion and retention behavior must be documented before launch.
 
-- Bearer tokens received from GitHub are used in-memory for the duration
-  of one API call and are never written to KV or to disk.
-- The hosted platform issues short-lived cookies (`HttpOnly`, `Secure`,
-  `SameSite=Lax`) carrying only a random session id.
-- Every audit event passes through a `redact()` function before being
-  written. The function strips bearer tokens, credential-bearing URL
-  userinfo, emails, and any object key whose name looks secret-like.
-- We never log secrets ourselves, but if a future contributor adds a
-  log line, it will be filtered by the redaction layer before reaching
-  any storage backend.
+## Logs and secrets
 
-## Deletion
-
-- **Disconnect GitHub** — POST to `/api/auth/disconnect`. This deletes
-  the local session record immediately and clears the cookie. The bearer
-  token is not persisted so there is nothing else to remove. We also
-  recommend revoking GitPulse on
-  [github.com/settings/applications](https://github.com/settings/applications).
-- **Account deletion** — POST to `/api/account/delete` (planned; not yet
-  shipped). This removes the user record and cascades to workspaces,
-  subscriptions, runs, and audit events.
-- **Sandbox data** — disposable by design; the sandbox is destroyed at
-  the end of the session and is never persisted to durable storage.
-
-## What we do *not* promise
-
-- We do not promise that every successful `git push` produces a GitHub
-  contribution square. Contribution attribution is decided by GitHub
-  using the author email; that is outside our control.
-- We do not promise 100% privacy. If GitHub itself is compromised, our
-  user-id-to-login mapping is disclosed.
-- We do not promise that the hosted platform will remain free in the
-  future. Pricing decisions live in [`docs/monetization.md`](monetization.md).
+Audit payloads pass through the redaction helper before optional persistence. Application code must still avoid logging raw credentials. Vercel environment variables containing GitHub secrets are server-only and must never use the `NEXT_PUBLIC_` prefix.

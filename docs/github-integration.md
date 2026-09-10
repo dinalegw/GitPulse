@@ -1,90 +1,79 @@
-# GitHub Integration Architecture
+# GitHub Integration
 
-GitPulse has two separate GitHub integration paths.
+GitPulse has two independent GitHub paths. Connecting the website does not install or run the CLI.
 
-## CLI authentication
+## Local CLI authentication
 
-The local Go CLI never asks users to paste a GitHub token into GitPulse. It
-uses the user's existing Git credential helper, SSH setup, GitHub CLI
-credentials, or other local Git authentication.
+The Go CLI runs on the user's computer. Git pushes use that computer's existing Git credential helper, SSH configuration, GitHub CLI credentials, or other local Git authentication. The CLI never asks a user to paste a private key or personal access token into the GitPulse website.
 
-## Hosted website: GitHub App user authorization
+## Website identity connection
 
-The hosted website uses a **GitHub App** with GitHub's user authorization
-web flow. This is intentionally not a classic OAuth App.
+The website uses a GitHub App user-authorization flow to:
 
-GitHub Apps are repository-installation scoped and use fine-grained
-permissions. A user access token can only reach resources available to both
-the signed-in user and the GitHub App installation.
+- verify the current GitHub identity;
+- list GitPulse GitHub App installations visible to that identity; and
+- create an eight-hour encrypted browser session.
 
-Flow:
+It does **not** currently list repositories, modify repositories, run scheduled jobs, or execute the local CLI for the user.
 
 ```text
 GET /api/auth/login
-  -> create CSRF state cookie
-  -> derive /api/auth/callback from the current deployment URL
-  -> redirect to github.com/login/oauth/authorize
+  -> move preview requests to the canonical production origin
+  -> create a CSRF state and PKCE verifier cookie
+  -> redirect to GitHub with the registered canonical callback
 
-GitHub callback
+GET /api/auth/callback
   -> verify state
-  -> exchange authorization code
-  -> GET /user
-  -> GET /user/installations
-  -> discard GitHub user access token
-  -> encrypt identity + installation ids into HttpOnly session cookie
+  -> exchange the one-time code with the PKCE verifier
+  -> fetch /user and /user/installations
+  -> discard the GitHub user access token
+  -> store identity + installation ids in an encrypted HttpOnly cookie
   -> redirect to /connect/success
 ```
 
-The user access token is never persisted. GitPulse does not require Vercel KV
-for authentication sessions.
+## Required configuration
 
-## Required GitHub App configuration
-
-Register GitPulse under GitHub **Settings -> Developer settings -> GitHub
-Apps**.
-
-Production callback URL:
+Register GitPulse as a **GitHub App** and configure this exact callback URL in GitHub:
 
 ```text
+Homepage URL: https://start-gitpulse.vercel.app
+Callback/Redirect URI:
 https://start-gitpulse.vercel.app/api/auth/callback
 ```
 
-The Vercel deployment needs:
+Set these variables for the Vercel Production environment:
 
 ```text
 GITHUB_CLIENT_ID=<GitHub App client id>
 GITHUB_CLIENT_SECRET=<GitHub App client secret>
+GITHUB_REDIRECT_URI=https://start-gitpulse.vercel.app/api/auth/callback
 ```
 
-No `GITHUB_REDIRECT_URI` environment variable is required; the application
-derives the callback URL from the live request. The callback URL still must be
-registered in the GitHub App settings.
+The callback must use HTTPS, contain no query or fragment, and end exactly in `/api/auth/callback`. After changing variables, redeploy Production. Preview deployments intentionally begin sign-in on the canonical production hostname because their temporary callback URLs are not registered with GitHub.
 
-For repository operations, give the GitHub App only the minimum repository
-permissions GitPulse needs. Git access requires the GitHub App **Contents**
-permission. Users decide which repositories the app is installed on.
+The private key used to mint GitHub App installation tokens is **not required by the currently shipped identity-only flow**. If repository operations are implemented later, store the complete PEM value as a server-only Vercel secret, including its `BEGIN` and `END` lines, and never expose it with a `NEXT_PUBLIC_` name.
 
-## Sessions
+Never paste a GitHub private key, client secret, access token, authorization code, or session cookie into chat, a GitHub issue, a source file, or a commit. If one is exposed, revoke/rotate it immediately and replace the deployment secret.
 
-After GitHub authorization, GitPulse stores only non-token session metadata:
+For Vercel, set the project Root Directory to `gitpulse-website`, use Node.js 24 and pnpm 10.34.5, and keep `pnpm-lock.yaml` as the only package-manager lockfile. Apply GitHub credentials to Production; Preview may contain the same public Client ID, but OAuth still returns through the canonical Production callback. Redeploy after any environment-variable change.
 
-- GitHub user id
-- login/name/avatar
-- installation ids
-- expiry metadata
+### Troubleshooting
 
-That payload is encrypted and authenticated using AES-256-GCM in an
-HttpOnly, Secure, SameSite=Lax cookie. Rotating the GitHub client secret
-invalidates existing GitPulse web sessions.
+- “redirect_uri is not associated” means the outgoing callback does not exactly match the GitHub App callback above. Inspect the encoded `redirect_uri`, correct `GITHUB_REDIRECT_URI`, and redeploy.
+- `github_token_exchange_rejected` commonly means the Client ID and Client Secret do not belong to the same GitHub App, or a one-time code was reused/expired. Rotate or correct the secret without displaying it.
+- `missing_state_cookie` means the authorization attempt expired, switched browser contexts, or lost its cookie. Start again from `/connect`.
+- `github_installations_failed` means the credential is not for the expected GitHub App or GitHub would not return the user's installations.
 
-## Repository authorization
+## What users see on GitHub
 
-Server-side authorization checks compare requested installation ids against
-the installation ids captured from GitHub for the signed-in user. Browser UI
-state is never treated as an authorization boundary.
+GitHub displays the username of the account currently signed in and authorizing the app. The owner/operator name shown beside the GitHub App is app metadata; it is not substituted into another user's identity. Every user sees their own signed-in username in the “Verify your GitHub identity” line.
 
-## Disconnect
+## Session and disconnect behavior
 
-Disconnect clears the local encrypted session cookie. Because GitPulse does
-not retain the GitHub user access token, full GitHub-side revocation is done
-from the user's GitHub application/installations settings.
+The browser session stores GitHub user id, login/name/avatar, installation ids, and expiry metadata. It is encrypted and authenticated with AES-256-GCM in an HttpOnly, Secure, SameSite=Lax cookie. The GitHub access token is not persisted.
+
+“Sign out of GitPulse” clears that browser cookie. It cannot also revoke GitHub-side access after the token has been discarded. A user can separately remove the GitHub App at [GitHub installation settings](https://github.com/settings/installations). Repository access ends when the installation is removed; an already-issued GitPulse browser cookie remains only an identity snapshot until it expires or is cleared.
+
+## Future repository authorization
+
+Installation ids cached in a browser session are not sufficient authorization for a write. Any future repository operation must mint a fresh installation token server-side and verify the selected installation, repository, current GitHub access, requested action, and entitlement at execution time.

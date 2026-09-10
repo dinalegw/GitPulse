@@ -1,87 +1,11 @@
-# Open Source vs Hosted Platform Boundary
+# Open Source and Hosted-Service Boundary
 
-This document describes what is open source, what is not, and why.
+The code currently published in this repository is MIT-licensed, including the Go CLI, bootstrap scripts, website, public playground, GitHub identity connection, and proposed TypeScript contracts. Secrets and user data are never part of the source license or repository.
 
-## The split
+The CLI is fully usable without the website. It runs on the user's machine and uses the user's local Git authentication. The public playground is also independent: it runs only in a disposable demo repository with a fake local origin.
 
-| Layer | Location | License | Visibility |
-| --- | --- | --- | --- |
-| GitPulse CLI (`cmd/`, `internal/`, `main.go`) | This repository | MIT | Public |
-| Bootstrap installer (`scripts/bootstrap.{sh,ps1}`) | This repository | MIT | Public |
-| CLI documentation (`docs/`, `README.md`, `CHANGELOG.md`) | This repository | MIT | Public |
-| Playground front-end (`gitpulse-website/app/playground`, `gitpulse-website/components`) | This repository | MIT | Public |
-| Playground API surface (`gitpulse-website/app/api/playground`) | This repository | MIT | Public |
-| Playground library code (`gitpulse-website/lib/{sandbox,commands,rate-limit,utils,playground-state,run-store,audit-log}.ts`) | This repository | MIT | Public |
-| OAuth + authorization library code (`gitpulse-website/lib/{github-oauth,session-store,authorization,entitlements,domain,oauth-attempt-tracker}.ts`) | This repository | MIT | Public |
-| Hosted backend (account, workspace, subscription, billing, scheduled-job orchestration) | Private repository | Proprietary | Not public |
-| Hosted database schema | Private repository | Proprietary | Not public |
-| Billing integration | Private repository | Proprietary | Not public |
-| Anti-abuse systems | Private repository | Proprietary | Not public |
+Authenticated hosted repository automation, billing, persistent accounts, workspaces, and scheduled-job orchestration are future capabilities and are **not shipped here**. Documentation must not imply that a private production backend already exists unless such a service has actually been deployed and verified.
 
-## Why this split
+If a separate hosted service is created later, its license, privacy terms, permissions, operational controls, and boundary with this MIT repository must be documented based on the real implementation. Proposed contracts in `gitpulse-website/lib/domain.ts` and `lib/entitlements.ts` may inform that work but are not a backend.
 
-Three user constituencies are served by GitPulse:
-
-1. **End users** who want to automate GitHub activity.
-2. **Developers** who want to read, modify, and contribute to the CLI.
-3. **Blacksauce operations** who want commercial control over the
-   hosted platform.
-
-The CLI is, by design, **fully usable without ever contacting the
-hosted platform**. A user can install it with the bootstrap installer,
-run `gitpulse init`, and never interact with our website. This is the
-open-source promise.
-
-The hosted platform, on the other hand, requires infrastructure
-(billing, identity, anti-abuse, observability, scheduled workers).
-Putting that infrastructure in a public repository would leak
-operational secrets and make the platform trivially cloneable by
-competitors. The MIT license protects the CLI, not the hosted service.
-
-## What does *not* change because of this split
-
-- The CLI behavior is identical whether or not you use the hosted
-  platform. There is no platform-specific build.
-- The playground front-end and the public API surface (allow-listed
-  commands, rate limiter, state machine) are MIT and live in this
-  repository.
-- The contracts the hosted backend depends on (entitlements,
-  authorization helpers, audit event types) are MIT and live in this
-  repository.
-- The hosted backend is a *consumer* of the open-source contracts. It
-  is not a copy of them. If you self-host the playground you are
-  reusing the same MIT code; you are not forking it.
-
-## Why the library code is MIT even though the hosted backend is not
-
-Library code that defines **contracts** (entitlements, authorization
-helpers, state machines) is more useful when it is open. A partner
-integrating with GitPulse can implement the same contract on their
-backend without negotiating license terms. The library code does not
-expose operational details — it is a contract, not an implementation.
-
-## What is *not* open by design
-
-- Secrets required to run the hosted platform (database URLs, signing
-  keys, billing provider keys, OAuth client secrets).
-- Internal hosted-platform services (scheduled-job orchestrator, billing
-  webhook handlers, anti-abuse ML models, operational dashboards).
-- Customer data the hosted platform stores.
-
-## What this means for contributors
-
-- Pull requests that touch library contracts are welcomed.
-- Pull requests that move operational logic out of the open-source
-  repository are not merged. Keep operational logic in the private
-  repository.
-- If you fork GitPulse to host your own version, you are welcome to
-  use the MIT code as a starting point. You do not need our permission.
-  You are also responsible for everything you ship under your own
-  brand.
-
-## Trademark
-
-The GitPulse name and logo are trademarks of BLACKSAUCE. The MIT license
-covers the source code; it does not cover the trademark. You may use
-the source under the MIT terms; if you ship a derivative product,
-please pick a different name to avoid confusion.
+Contributors may use, modify, and self-host the MIT code under the license terms. The GitPulse name and logo may be subject to separate trademark rules; the MIT license covers source code, not trademark rights.

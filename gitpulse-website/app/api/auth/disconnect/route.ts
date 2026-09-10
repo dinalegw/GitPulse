@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import {
   clearSessionCookie,
   readSessionCookie,
@@ -7,7 +7,7 @@ import { appendAuditEvent } from '@/lib/audit-log';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const session = await readSessionCookie();
   await clearSessionCookie();
 
@@ -17,9 +17,10 @@ export async function POST() {
     actorLogin: session?.user.login,
   });
 
-  return NextResponse.json({
-    ok: true,
-    message:
-      'Local GitPulse session cleared. To revoke GitHub-side access too, uninstall or revoke GitPulse from your GitHub application settings.',
-  });
+  const response = NextResponse.redirect(
+    new URL('/connect?status=signed_out', request.url),
+    303
+  );
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
 }

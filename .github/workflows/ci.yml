@@ -142,6 +142,10 @@ jobs:
         working-directory: gitpulse-website
         run: pnpm install --frozen-lockfile
 
+      - name: Audit production dependencies
+        working-directory: gitpulse-website
+        run: pnpm audit --prod --audit-level high
+
       - name: Typecheck
         working-directory: gitpulse-website
         run: pnpm run typecheck

@@ -7,25 +7,21 @@ const version = readFileSync(join(process.cwd(), '..', 'VERSION'), 'utf-8').trim
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**.e2b.dev',
-      },
-    ],
-  },
   env: {
     NEXT_PUBLIC_GITPULSE_VERSION: version,
   },
   async headers() {
     return [
       {
-        source: '/api/playground/:path*',
+        source: '/:path*',
         headers: [
-          { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET, POST, OPTIONS' },
-          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), geolocation=(), microphone=()',
+          },
         ],
       },
     ];

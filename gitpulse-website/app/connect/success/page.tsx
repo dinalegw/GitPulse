@@ -30,7 +30,7 @@ function SuccessContent() {
                 </CardTitle>
                 <CardDescription>
                   {installationCount > 0
-                    ? `GitPulse can see ${installationCount} GitHub App installation(s) authorized for your account.`
+                    ? `GitPulse verified your identity and found ${installationCount} GitHub App installation(s) authorized for your account.`
                     : 'Your GitHub identity is connected, but the GitPulse GitHub App is not installed on any repositories available to this account yet.'}
                 </CardDescription>
               </CardHeader>
@@ -43,7 +43,7 @@ function SuccessContent() {
                 </Link>
                 <form action="/api/auth/disconnect" method="post">
                   <Button type="submit" variant="secondary">
-                    Disconnect
+                    Sign out of GitPulse
                   </Button>
                 </form>
               </CardContent>
