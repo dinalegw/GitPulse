@@ -46,6 +46,36 @@ func (c *Client) UserIdentity(ctx context.Context) (name, email string, err erro
 	return strings.TrimSpace(name), strings.TrimSpace(email), nil
 }
 
+// LastCommitAuthor returns the author recorded on the repository's most
+// recent commit. It is intentionally separate from UserIdentity: history is
+// only a recovery candidate and must be confirmed by the person running
+// GitPulse before it is saved to the selected repository.
+func (c *Client) LastCommitAuthor(ctx context.Context) (name, email string, err error) {
+	out, err := c.run.Run(ctx, c.dir, "log", "-1", "--format=%an%x00%ae")
+	if err != nil {
+		return "", "", fmt.Errorf("cannot read the latest commit author: %w", err)
+	}
+	name, email, found := strings.Cut(out, "\x00")
+	if !found {
+		return "", "", fmt.Errorf("latest commit does not contain a usable author identity")
+	}
+	name = strings.TrimSpace(name)
+	email = strings.TrimSpace(email)
+	if name == "" || email == "" || strings.ContainsAny(name+email, "\r\n\x00") {
+		return "", "", fmt.Errorf("latest commit does not contain a usable author identity")
+	}
+	return name, email, nil
+}
+
+// SetLocalConfig writes a non-secret setting only to the selected
+// repository's .git/config. It never changes the user's global Git setup.
+func (c *Client) SetLocalConfig(ctx context.Context, key, value string) error {
+	if _, err := c.run.Run(ctx, c.dir, "config", "--local", key, value); err != nil {
+		return fmt.Errorf("cannot save %s in this repository: %w", key, err)
+	}
+	return nil
+}
+
 func (c *Client) configValue(ctx context.Context, key string) (string, error) {
 	out, err := c.run.Run(ctx, c.dir, "config", "--get", key)
 	if err != nil {

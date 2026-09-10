@@ -67,6 +67,27 @@ func TestUserIdentity(t *testing.T) {
 	}
 }
 
+func TestLastCommitAuthor(t *testing.T) {
+	run := newFakeGitRunner()
+	run.results["git log -1 --format=%an%x00%ae"] = "Jane Developer\x00jane@example.com"
+	c := New("/repo", run)
+	name, email, err := c.LastCommitAuthor(context.Background())
+	if err != nil || name != "Jane Developer" || email != "jane@example.com" {
+		t.Fatalf("LastCommitAuthor() = %q, %q, %v", name, email, err)
+	}
+}
+
+func TestSetLocalConfigDoesNotUseGlobalScope(t *testing.T) {
+	run := newFakeGitRunner()
+	c := New("/repo", run)
+	if err := c.SetLocalConfig(context.Background(), "user.name", "Jane Developer"); err != nil {
+		t.Fatal(err)
+	}
+	if len(run.calls) != 1 || run.calls[0] != "git config --local user.name Jane Developer" {
+		t.Fatalf("calls = %v; want one local config call", run.calls)
+	}
+}
+
 func TestPushDryRunUsesHEADRefspec(t *testing.T) {
 	run := newFakeGitRunner()
 	run.results["git push --dry-run origin HEAD:main"] = "Everything up-to-date"
