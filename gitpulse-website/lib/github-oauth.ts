@@ -10,9 +10,9 @@
 //   GITHUB_CLIENT_ID
 //   GITHUB_CLIENT_SECRET
 //
-// The OAuth callback URL is derived from the incoming request so preview and
-// production domains cannot silently drift from a hard-coded environment
-// variable. Register the production callback URL in the GitHub App settings.
+// OAuth must always use one canonical, GitHub-App-registered callback. A
+// preview deployment URL is not registered with GitHub and therefore must
+// never be sent as redirect_uri.
 
 import {
   randomBytes,
@@ -28,6 +28,8 @@ export const OAUTH_STATE_COOKIE = 'gitpulse_oauth_state';
 const SESSION_TTL_SECONDS = 60 * 60 * 8;
 const SESSION_COOKIE_VERSION = 'v1';
 const GITHUB_API_VERSION = '2026-03-10';
+const DEFAULT_GITHUB_REDIRECT_URI =
+  'https://start-gitpulse.vercel.app/api/auth/callback';
 
 export class GitHubOAuthError extends Error {
   readonly code: string;
@@ -84,6 +86,29 @@ export function isGitHubOAuthConfigured(): boolean {
     process.env.GITHUB_CLIENT_ID?.trim() &&
       process.env.GITHUB_CLIENT_SECRET?.trim()
   );
+}
+
+export function getGitHubRedirectUri(): string {
+  const raw = process.env.GITHUB_REDIRECT_URI?.trim() || DEFAULT_GITHUB_REDIRECT_URI;
+
+  try {
+    const url = new URL(raw);
+    if (
+      url.protocol !== 'https:' ||
+      url.pathname !== '/api/auth/callback' ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error('invalid callback URL');
+    }
+    return url.toString();
+  } catch {
+    throw new GitHubOAuthError(
+      'github_redirect_uri_invalid',
+      'GITHUB_REDIRECT_URI must be an HTTPS URL ending in /api/auth/callback',
+      503
+    );
+  }
 }
 
 function githubHeaders(accessToken: string): Record<string, string> {
