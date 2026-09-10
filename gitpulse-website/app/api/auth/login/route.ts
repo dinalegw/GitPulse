@@ -4,15 +4,21 @@ import {
   generateState,
   setOAuthStateCookie,
   GitHubOAuthError,
+  getGitHubRedirectUri,
 } from '@/lib/github-oauth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const redirectUri = getGitHubRedirectUri();
+    const canonicalOrigin = new URL(redirectUri).origin;
+    if (new URL(request.url).origin !== canonicalOrigin) {
+      return NextResponse.redirect(new URL('/api/auth/login', canonicalOrigin));
+    }
+
     const { state } = generateState();
     await setOAuthStateCookie(state);
-    const redirectUri = new URL('/api/auth/callback', request.url).toString();
     return NextResponse.redirect(buildAuthorizeUrl(state, redirectUri));
   } catch (error) {
     const code =
