@@ -24,3 +24,16 @@ func TestIsGitPulseUpstream(t *testing.T) {
 		}
 	}
 }
+
+func TestAcceptsGitIdentity(t *testing.T) {
+	for _, answer := range []string{"", "y", "Y", "yes", " Yes "} {
+		if !acceptsGitIdentity(answer) {
+			t.Errorf("acceptsGitIdentity(%q) = false, want true", answer)
+		}
+	}
+	for _, answer := range []string{"n", "no", "change it"} {
+		if acceptsGitIdentity(answer) {
+			t.Errorf("acceptsGitIdentity(%q) = true, want false", answer)
+		}
+	}
+}
