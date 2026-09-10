@@ -49,6 +49,11 @@ func runInteractive(cmd *cobra.Command) error {
 
 	pullClient := git.New(absPath, git.NewRealRunner(log))
 	pullCtx := context.Background()
+	if err := confirmGitIdentity(reader, pullClient, pullCtx); err != nil {
+		return err
+	}
+	fmt.Println()
+
 	branch, err := pullClient.CurrentBranch(pullCtx)
 	if err != nil {
 		fmt.Printf("Warning: cannot determine current branch: %v\n", err)
@@ -219,6 +224,51 @@ func runInteractive(cmd *cobra.Command) error {
 	fmt.Println("=====================================")
 
 	return nil
+}
+
+// confirmGitIdentity reads the author identity Git already resolves for the
+// selected repository. `git config --get` searches repository, global, and
+// system configuration in Git's normal precedence order; GitPulse never asks
+// for or stores a GitHub password, token, or SSH key.
+func confirmGitIdentity(reader *bufio.Reader, client *git.Client, ctx context.Context) error {
+	name, email, err := client.UserIdentity(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot read the Git author identity: %w", err)
+	}
+
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" {
+		fmt.Println("GitPulse could not find a complete Git commit identity for this repository.")
+		fmt.Println("It does not need, request, or store your GitHub password, token, or SSH key.")
+		fmt.Println("GitHub sign-in and Git commit authorship are configured separately by Git.")
+		fmt.Println()
+		fmt.Println("Set your author identity once with Git, then run GitPulse again:")
+		if strings.TrimSpace(name) == "" {
+			fmt.Println("  git config --global user.name \"Your Name\"")
+		}
+		if strings.TrimSpace(email) == "" {
+			fmt.Println("  git config --global user.email \"your-github-email-or-noreply-email\"")
+		}
+		return fmt.Errorf("Git author identity is incomplete")
+	}
+
+	fmt.Println("Detected Git author identity:")
+	fmt.Printf("  Name:  %s\n", name)
+	fmt.Printf("  Email: %s\n", email)
+	answer, err := prompt(reader, "Use this identity? [Y/n]")
+	if err != nil {
+		return err
+	}
+	answer = strings.TrimSpace(answer)
+	if acceptsGitIdentity(answer) {
+		return nil
+	}
+
+	return fmt.Errorf("GitPulse stopped; no Git identity or credentials were changed")
+}
+
+func acceptsGitIdentity(answer string) bool {
+	answer = strings.TrimSpace(answer)
+	return answer == "" || strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")
 }
 
 // isGitPulseUpstream reports whether a remote names the public GitPulse
