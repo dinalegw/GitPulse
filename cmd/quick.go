@@ -237,18 +237,7 @@ func confirmGitIdentity(reader *bufio.Reader, client *git.Client, ctx context.Co
 	}
 
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(email) == "" {
-		fmt.Println("GitPulse could not find a complete Git commit identity for this repository.")
-		fmt.Println("It does not need, request, or store your GitHub password, token, or SSH key.")
-		fmt.Println("GitHub sign-in and Git commit authorship are configured separately by Git.")
-		fmt.Println()
-		fmt.Println("Set your author identity once with Git, then run GitPulse again:")
-		if strings.TrimSpace(name) == "" {
-			fmt.Println("  git config --global user.name \"Your Name\"")
-		}
-		if strings.TrimSpace(email) == "" {
-			fmt.Println("  git config --global user.email \"your-github-email-or-noreply-email\"")
-		}
-		return fmt.Errorf("Git author identity is incomplete")
+		return recoverGitIdentityFromHistory(reader, client, ctx, name, email)
 	}
 
 	fmt.Println("Detected Git author identity:")
@@ -264,6 +253,55 @@ func confirmGitIdentity(reader *bufio.Reader, client *git.Client, ctx context.Co
 	}
 
 	return fmt.Errorf("GitPulse stopped; no Git identity or credentials were changed")
+}
+
+func recoverGitIdentityFromHistory(reader *bufio.Reader, client *git.Client, ctx context.Context, configuredName, configuredEmail string) error {
+	historyName, historyEmail, err := client.LastCommitAuthor(ctx)
+	if err == nil {
+		name := configuredName
+		if strings.TrimSpace(name) == "" {
+			name = historyName
+		}
+		email := configuredEmail
+		if strings.TrimSpace(email) == "" {
+			email = historyEmail
+		}
+
+		fmt.Println("Git's saved author identity is incomplete, but this repository's latest commit uses:")
+		fmt.Printf("  Name:  %s\n", name)
+		fmt.Printf("  Email: %s\n", email)
+		answer, promptErr := prompt(reader, "Use this identity and save only the missing value in this repository? [Y/n]")
+		if promptErr != nil {
+			return promptErr
+		}
+		if acceptsGitIdentity(answer) {
+			if strings.TrimSpace(configuredName) == "" {
+				if setErr := client.SetLocalConfig(ctx, "user.name", historyName); setErr != nil {
+					return setErr
+				}
+			}
+			if strings.TrimSpace(configuredEmail) == "" {
+				if setErr := client.SetLocalConfig(ctx, "user.email", historyEmail); setErr != nil {
+					return setErr
+				}
+			}
+			return nil
+		}
+		return fmt.Errorf("GitPulse stopped; no Git identity or credentials were changed")
+	}
+
+	fmt.Println("GitPulse could not find a complete Git commit identity for this repository.")
+	fmt.Println("It does not need, request, or store your GitHub password, token, or SSH key.")
+	fmt.Println("GitHub sign-in and Git commit authorship are configured separately by Git.")
+	fmt.Println()
+	fmt.Println("Set your author identity once with Git, then run GitPulse again:")
+	if strings.TrimSpace(configuredName) == "" {
+		fmt.Println("  git config --global user.name \"Your Name\"")
+	}
+	if strings.TrimSpace(configuredEmail) == "" {
+		fmt.Println("  git config --global user.email \"your-github-email-or-noreply-email\"")
+	}
+	return fmt.Errorf("Git author identity is incomplete")
 }
 
 func acceptsGitIdentity(answer string) bool {
