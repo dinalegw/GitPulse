@@ -56,6 +56,20 @@ func runInteractive(cmd *cobra.Command) error {
 	} else {
 		hasRemote, _ := pullClient.HasRemote(pullCtx, "origin")
 		if hasRemote {
+			remoteURL, remoteErr := pullClient.RemoteURL(pullCtx, "origin")
+			if remoteErr == nil && isGitPulseUpstream(remoteURL) {
+				fmt.Println("This clone points to the official GitPulse source repository.")
+				fmt.Println("GitPulse will not create commits here because you do not have permission to push to that repository.")
+				fmt.Println()
+				fmt.Println("To use GitPulse for your own work:")
+				fmt.Println("  1. Install GitPulse, then cd into a Git repository you own.")
+				fmt.Println("  2. Run: gitpulse init")
+				fmt.Println("  3. Run: gitpulse run --dry-run")
+				fmt.Println()
+				fmt.Println("If you are changing GitPulse itself, first fork it on GitHub and point origin at your fork:")
+				fmt.Println("  git remote set-url origin https://github.com/<your-username>/GitPulse.git")
+				return fmt.Errorf("origin points to the upstream GitPulse repository; choose a repository you own")
+			}
 			fmt.Printf("Pulling latest changes from origin/%s...\n", branch)
 			if err := pullClient.Pull(pullCtx, "origin", branch); err != nil {
 				fmt.Printf("Error: failed to pull latest changes: %v\n", err)
@@ -205,6 +219,20 @@ func runInteractive(cmd *cobra.Command) error {
 	fmt.Println("=====================================")
 
 	return nil
+}
+
+// isGitPulseUpstream reports whether a remote names the public GitPulse
+// source repository. It intentionally accepts the common HTTPS and SSH forms
+// so the interactive wizard can stop before making local commits a user could
+// not push.
+func isGitPulseUpstream(remoteURL string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(remoteURL))
+	normalized = strings.TrimSuffix(normalized, "/")
+	normalized = strings.TrimSuffix(normalized, ".git")
+	return normalized == "https://github.com/dinalegw/gitpulse" ||
+		normalized == "http://github.com/dinalegw/gitpulse" ||
+		normalized == "git@github.com:dinalegw/gitpulse" ||
+		normalized == "ssh://git@github.com/dinalegw/gitpulse"
 }
 
 func promptRepoPath(reader *bufio.Reader, log *logger.Logger, cwd string) (string, error) {
