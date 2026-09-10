@@ -12,7 +12,6 @@ import {
   type AuthSession,
 } from '@/lib/github-oauth';
 import { appendAuditEvent } from '@/lib/audit-log';
-import { recordAuthorizationCode } from '@/lib/oauth-attempt-tracker';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,16 +29,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/connect?error=missing_code_or_state', request.url));
   }
 
-  const expectedState = await readOAuthStateCookie();
-  if (!expectedState) {
+  const attempt = await readOAuthStateCookie();
+  if (!attempt) {
     return NextResponse.redirect(new URL('/connect?error=missing_state_cookie', request.url));
   }
   await clearOAuthStateCookie();
 
   try {
     const redirectUri = getGitHubRedirectUri();
-    const accessToken = await exchangeCodeForToken(code, state, expectedState, redirectUri);
-    recordAuthorizationCode();
+    const accessToken = await exchangeCodeForToken(
+      code,
+      state,
+      attempt.state,
+      redirectUri,
+      attempt.codeVerifier
+    );
     const { user, scopes } = await fetchUserIdentity(accessToken);
     const installations = await listInstallations(accessToken);
 

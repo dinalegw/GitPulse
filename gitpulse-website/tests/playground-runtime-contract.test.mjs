@@ -8,11 +8,18 @@ const inputRoute = readFileSync(new URL('../app/api/playground/input/route.ts', 
 const page = readFileSync(new URL('../app/playground/page.tsx', import.meta.url), 'utf8');
 const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const vercel = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+const nextConfig = readFileSync(new URL('../next.config.ts', import.meta.url), 'utf8');
 
 test('playground executes sandbox in one request without KV reconnect', () => {
   assert.match(route, /runSandboxCommand/);
   assert.doesNotMatch(route, /createSandboxSession|executeCommand\(sessionId|reconnectSandboxSession/);
   assert.doesNotMatch(sandbox, /@vercel\/kv|Sandbox\.get\(|Session not found or expired/);
+});
+
+test('optional metadata uses the supported Upstash Redis client', () => {
+  assert.equal(pkg.dependencies['@upstash/redis'], '1.38.4');
+  assert.equal(pkg.dependencies['@vercel/kv'], undefined);
 });
 
 test('sandbox bootstrap avoids E2B, package managers, and shell composition', () => {
@@ -57,6 +64,14 @@ test('Vercel and CI share explicit Node and pnpm toolchains', () => {
   assert.match(ci, /pnpm install --frozen-lockfile/);
   assert.match(ci, /node-version:\s*\$\{\{ matrix\.node \}\}/);
   assert.doesNotMatch(ci, /E2B_API_KEY/);
+});
+
+test('deployment timeout covers the maximum sandbox window and public CORS is disabled', () => {
+  assert.equal(vercel.functions['app/api/playground/run/route.ts'].maxDuration, 300);
+  assert.match(route, /export const maxDuration = 300/);
+  assert.doesNotMatch(JSON.stringify(vercel), /Access-Control-Allow-Origin/);
+  assert.doesNotMatch(nextConfig, /Access-Control-Allow-Origin/);
+  assert.doesNotMatch(route, /export async function OPTIONS/);
 });
 
 test('only pnpm lockfile is used for the website', () => {

@@ -9,14 +9,14 @@
 //     the user-visible flow.
 //
 // Storage:
-//   - Production: Vercel KV (Upstash Redis), append-only list keyed by day.
+//   - Production: optional Upstash Redis records keyed by day.
 //     TTL: 90 days, matching the data-retention policy documented in
 //     docs/privacy.md.
 //   - Local dev: in-memory ring buffer (lost on restart). This is
 //     intentional so we never write audit data to the developer's disk.
 
-import { kv } from '@vercel/kv';
 import { withOptionalStorageTimeout } from './optional-storage';
+import { getRedis } from './redis';
 
 const KV_PREFIX = 'audit:event:';
 const TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days
@@ -114,10 +114,6 @@ export function redact(value: unknown): unknown {
   return value;
 }
 
-function kvAvailable(): boolean {
-  return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
-}
-
 function randomEventId(): string {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -129,16 +125,17 @@ export async function appendAuditEvent(input: AuditEventInput): Promise<void> {
     ...redact(input) as Omit<AuditEvent, 'id' | 'occurredAt'>,
   };
 
-  if (kvAvailable()) {
+  const redis = getRedis();
+  if (redis) {
     try {
       const dayKey = event.occurredAt.slice(0, 10);
       await withOptionalStorageTimeout(
-        kv.set(`${KV_PREFIX}${dayKey}:${event.id}`, JSON.stringify(event), { ex: TTL_SECONDS }),
+        redis.set(`${KV_PREFIX}${dayKey}:${event.id}`, JSON.stringify(event), { ex: TTL_SECONDS }),
         'audit event write'
       );
       return;
     } catch (error) {
-      console.warn('[audit] KV write failed, falling back to memory ring:', error);
+      console.warn('[audit] Redis write failed, falling back to memory ring:', error);
     }
   }
 
@@ -149,15 +146,16 @@ export async function appendAuditEvent(input: AuditEventInput): Promise<void> {
 }
 
 export async function readAuditEventsForDay(day: string): Promise<AuditEvent[]> {
-  if (!kvAvailable()) return [];
+  const redis = getRedis();
+  if (!redis) return [];
   try {
     const list = await withOptionalStorageTimeout(
-      kv.keys(`${KV_PREFIX}${day}:*`),
+      redis.keys(`${KV_PREFIX}${day}:*`),
       'audit event key read'
     );
     if (!list.length) return [];
     const values = (await withOptionalStorageTimeout(
-      kv.mget<string[]>(...list),
+      redis.mget<string[]>(...list),
       'audit event batch read'
     )) as Array<string | null>;
     return values
@@ -167,7 +165,7 @@ export async function readAuditEventsForDay(day: string): Promise<AuditEvent[]> 
         a.occurredAt < b.occurredAt ? 1 : -1
       );
   } catch (error) {
-    console.warn('[audit] KV read failed:', error);
+    console.warn('[audit] Redis read failed:', error);
     return [];
   }
 }

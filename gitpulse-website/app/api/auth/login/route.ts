@@ -17,9 +17,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/api/auth/login', canonicalOrigin));
     }
 
-    const { state } = generateState();
-    await setOAuthStateCookie(state);
-    return NextResponse.redirect(buildAuthorizeUrl(state, redirectUri));
+    const { state, codeVerifier, codeChallenge } = generateState();
+    await setOAuthStateCookie(state, codeVerifier);
+    return NextResponse.redirect(
+      buildAuthorizeUrl(state, redirectUri, codeChallenge)
+    );
   } catch (error) {
     const code =
       error instanceof GitHubOAuthError

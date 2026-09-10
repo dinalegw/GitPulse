@@ -1,10 +1,10 @@
 // Playground rate limiting.
-// Vercel KV provides distributed counters when configured. Without KV,
+// Upstash Redis provides distributed counters when configured. Without it,
 // an in-memory fallback still limits bursts per warm server instance so
 // the playground remains usable without making optional storage mandatory.
 
-import { kv } from '@vercel/kv';
 import { withOptionalStorageTimeout } from './optional-storage';
+import { getRedis } from './redis';
 
 function positiveInteger(raw: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(raw || '', 10);
@@ -40,10 +40,6 @@ const memory: MemoryRateStore =
 if (!(globalThis as { __gitpulseRateLimit?: MemoryRateStore }).__gitpulseRateLimit) {
   (globalThis as { __gitpulseRateLimit?: MemoryRateStore }).__gitpulseRateLimit =
     memory;
-}
-
-function kvAvailable(): boolean {
-  return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 }
 
 function incrementMemory(key: string, expiresAt: number, now: number): number {
@@ -91,7 +87,8 @@ function inMemoryRateLimit(ip: string, now: number): RateLimitResult {
 export async function checkRateLimit(ip: string): Promise<RateLimitResult> {
   const now = Date.now();
 
-  if (!kvAvailable()) {
+  const redis = getRedis();
+  if (!redis) {
     return inMemoryRateLimit(ip, now);
   }
 
@@ -99,7 +96,7 @@ export async function checkRateLimit(ip: string): Promise<RateLimitResult> {
   const hourKey = `ratelimit:${ip}:${Math.floor(now / 3_600_000)}`;
 
   try {
-    const pipeline = kv.pipeline();
+    const pipeline = redis.pipeline();
     pipeline.incr(minuteKey);
     pipeline.incr(hourKey);
     pipeline.expire(minuteKey, 60);
@@ -129,7 +126,7 @@ export async function checkRateLimit(ip: string): Promise<RateLimitResult> {
       limit: RATE_LIMIT_PER_MINUTE,
     };
   } catch (error) {
-    console.warn('[RateLimit] KV unavailable; using in-memory limiter:', error);
+    console.warn('[RateLimit] Redis unavailable; using in-memory limiter:', error);
     return inMemoryRateLimit(ip, now);
   }
 }

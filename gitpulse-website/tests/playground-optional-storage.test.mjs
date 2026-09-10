@@ -12,7 +12,7 @@ test('distributed idempotency uses one atomic NX claim', () => {
   assert.doesNotMatch(runs, /const existing = await findRunByIdempotencyKey[\s\S]*kv\.set/);
 });
 
-test('optional KV paths have bounded latency and memory fallbacks', () => {
+test('optional Redis paths have bounded latency and memory fallbacks', () => {
   assert.match(runs, /withOptionalStorageTimeout/);
   assert.match(rate, /withOptionalStorageTimeout/);
   assert.match(audit, /withOptionalStorageTimeout/);

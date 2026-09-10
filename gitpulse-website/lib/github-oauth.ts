@@ -119,10 +119,17 @@ function githubHeaders(accessToken: string): Record<string, string> {
   };
 }
 
-export function generateState(): { state: string; stateHash: string } {
+export function generateState(): {
+  state: string;
+  codeVerifier: string;
+  codeChallenge: string;
+} {
   const state = randomBytes(32).toString('base64url');
-  const stateHash = createHash('sha256').update(state).digest('base64url');
-  return { state, stateHash };
+  const codeVerifier = randomBytes(32).toString('base64url');
+  const codeChallenge = createHash('sha256')
+    .update(codeVerifier)
+    .digest('base64url');
+  return { state, codeVerifier, codeChallenge };
 }
 
 export function constantTimeEqual(a: string, b: string): boolean {
@@ -132,12 +139,18 @@ export function constantTimeEqual(a: string, b: string): boolean {
   return timingSafeEqual(aBuf, bBuf);
 }
 
-export function buildAuthorizeUrl(state: string, redirectUri: string): string {
+export function buildAuthorizeUrl(
+  state: string,
+  redirectUri: string,
+  codeChallenge: string
+): string {
   const clientId = requireEnv('GITHUB_CLIENT_ID');
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     state,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
     allow_signup: 'true',
   });
   // GitHub App user access tokens do not use OAuth scopes. Permissions are
@@ -149,7 +162,8 @@ export async function exchangeCodeForToken(
   code: string,
   state: string,
   expectedState: string,
-  redirectUri: string
+  redirectUri: string,
+  codeVerifier: string
 ): Promise<string> {
   if (!constantTimeEqual(state, expectedState)) {
     throw new GitHubOAuthError(
@@ -173,6 +187,7 @@ export async function exchangeCodeForToken(
       client_secret: clientSecret,
       code,
       redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
     }).toString(),
     cache: 'no-store',
   });
@@ -260,28 +275,6 @@ export async function listInstallations(
     installations: Array<{ id: number; account: { login: string } }>;
   };
   return payload.installations;
-}
-
-export async function revokeAccessToken(accessToken: string): Promise<void> {
-  const clientId = requireEnv('GITHUB_CLIENT_ID');
-  const clientSecret = requireEnv('GITHUB_CLIENT_SECRET');
-  try {
-    await fetch(`https://api.github.com/applications/${clientId}/token`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Basic ${Buffer.from(
-          `${clientId}:${clientSecret}`
-        ).toString('base64')}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': GITHUB_API_VERSION,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ access_token: accessToken }),
-      cache: 'no-store',
-    });
-  } catch (error) {
-    console.warn('[auth] GitHub token revocation failed:', error);
-  }
 }
 
 export function newSessionId(): string {
@@ -397,17 +390,37 @@ export async function readSessionCookie(): Promise<AuthSession | null> {
   return decodeSessionCookie(raw);
 }
 
-export async function setOAuthStateCookie(state: string) {
+export async function setOAuthStateCookie(state: string, codeVerifier: string) {
   const jar = await cookies();
   jar.set({
     ...buildOAuthStateCookieOptions(),
-    value: state,
+    value: Buffer.from(JSON.stringify({ state, codeVerifier }), 'utf8').toString('base64url'),
   });
 }
 
-export async function readOAuthStateCookie(): Promise<string | null> {
+export async function readOAuthStateCookie(): Promise<{
+  state: string;
+  codeVerifier: string;
+} | null> {
   const jar = await cookies();
-  return jar.get(OAUTH_STATE_COOKIE)?.value ?? null;
+  const raw = jar.get(OAUTH_STATE_COOKIE)?.value;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as {
+      state?: unknown;
+      codeVerifier?: unknown;
+    };
+    if (
+      typeof parsed.state !== 'string' ||
+      typeof parsed.codeVerifier !== 'string' ||
+      parsed.codeVerifier.length < 43
+    ) {
+      return null;
+    }
+    return { state: parsed.state, codeVerifier: parsed.codeVerifier };
+  } catch {
+    return null;
+  }
 }
 
 export async function clearOAuthStateCookie() {

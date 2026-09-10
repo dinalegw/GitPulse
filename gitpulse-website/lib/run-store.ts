@@ -1,8 +1,8 @@
 // Run metadata and idempotency store.
 // Sandbox identity and execution NEVER depend on this module.
 
-import { kv } from '@vercel/kv';
 import { withOptionalStorageTimeout } from './optional-storage';
+import { getRedis } from './redis';
 import type { PlaygroundState } from './playground-state';
 import { canTransition, isTerminal } from './playground-state';
 
@@ -38,10 +38,6 @@ const memory: MemoryStore =
 
 if (!(globalThis as { __gitpulseRunStore?: MemoryStore }).__gitpulseRunStore) {
   (globalThis as { __gitpulseRunStore?: MemoryStore }).__gitpulseRunStore = memory;
-}
-
-function kvAvailable(): boolean {
-  return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 }
 
 function randomRunId(): string {
@@ -85,17 +81,18 @@ function rememberRun(run: PlaygroundRun, normalized?: string): void {
 
 async function persistRun(run: PlaygroundRun): Promise<void> {
   memory.runs.set(run.runId, run);
-  if (!kvAvailable()) return;
+  const redis = getRedis();
+  if (!redis) return;
 
   try {
     await withOptionalStorageTimeout(
-      kv.set(`${KV_RUN_PREFIX}${run.runId}`, JSON.stringify(run), {
+      redis.set(`${KV_RUN_PREFIX}${run.runId}`, JSON.stringify(run), {
         ex: RUN_TTL_SECONDS,
       }),
       'run metadata write'
     );
   } catch (error) {
-    console.warn('[runs] optional KV write unavailable; continuing in memory:', error);
+    console.warn('[runs] optional Redis write unavailable; continuing in memory:', error);
   }
 }
 
@@ -103,10 +100,11 @@ export async function loadRun(runId: string): Promise<PlaygroundRun | null> {
   const local = memory.runs.get(runId);
   if (local) return local;
 
-  if (kvAvailable()) {
+  const redis = getRedis();
+  if (redis) {
     try {
       const raw = await withOptionalStorageTimeout(
-        kv.get<string>(`${KV_RUN_PREFIX}${runId}`),
+        redis.get<string>(`${KV_RUN_PREFIX}${runId}`),
         'run metadata read'
       );
       if (typeof raw === 'string') {
@@ -115,7 +113,7 @@ export async function loadRun(runId: string): Promise<PlaygroundRun | null> {
         return run;
       }
     } catch (error) {
-      console.warn('[runs] optional KV read unavailable; using memory:', error);
+      console.warn('[runs] optional Redis read unavailable; using memory:', error);
     }
   }
 
@@ -134,17 +132,18 @@ export async function findRunByIdempotencyKey(
     if (local) return local;
   }
 
-  if (!kvAvailable()) return null;
+  const redis = getRedis();
+  if (!redis) return null;
 
   try {
     const runId = await withOptionalStorageTimeout(
-      kv.get<string>(`${KV_IDEMP_PREFIX}${normalized}`),
+      redis.get<string>(`${KV_IDEMP_PREFIX}${normalized}`),
       'idempotency read'
     );
     if (!runId) return null;
     return await loadRun(runId);
   } catch (error) {
-    console.warn('[runs] optional KV idempotency read unavailable:', error);
+    console.warn('[runs] optional Redis idempotency read unavailable:', error);
     return null;
   }
 }
@@ -171,12 +170,13 @@ export async function claimRun(input: {
 
   const candidate = buildRun(input);
 
-  if (kvAvailable()) {
+  const redis = getRedis();
+  if (redis) {
     try {
       // Redis SET NX is the distributed atomic claim. This is deliberately
       // not implemented as GET -> SET.
       const claimed = await withOptionalStorageTimeout(
-        kv.set(`${KV_IDEMP_PREFIX}${normalized}`, candidate.runId, {
+        redis.set(`${KV_IDEMP_PREFIX}${normalized}`, candidate.runId, {
           nx: true,
           ex: RUN_TTL_SECONDS,
         }),
@@ -185,7 +185,7 @@ export async function claimRun(input: {
 
       if (!claimed) {
         const existingRunId = await withOptionalStorageTimeout(
-          kv.get<string>(`${KV_IDEMP_PREFIX}${normalized}`),
+          redis.get<string>(`${KV_IDEMP_PREFIX}${normalized}`),
           'idempotency winner read'
         );
 
