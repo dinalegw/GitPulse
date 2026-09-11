@@ -73,6 +73,9 @@ export default function HomePage() {
               <span>Language</span>
               <div id={LANGUAGE_MENU_ID} />
             </div>
+            <p className="text-xs text-text-muted -mt-5 mb-8">
+              Translation powered by <a href="https://github.com/xnx3/translate" target="_blank" rel="noopener noreferrer" className="link">translate.js</a>, created by Guan Leiming (xnx3).
+            </p>
 
             <div className="flex flex-wrap items-center justify-center gap-3 mb-10 text-sm text-text-muted">
               <span className="flex items-center gap-1.5 badge badge-success"><Check className="h-3 w-3" /> Safety checks</span>

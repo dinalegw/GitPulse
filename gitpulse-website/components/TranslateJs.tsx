@@ -12,6 +12,7 @@ type TranslateApi = {
   service: { use: (service: string) => void };
   listener: { start: () => void };
   selectLanguageTag: { show: boolean; languages: string; documentId: string };
+  setAutoDiscriminateLocalLanguage: () => void;
   setDocuments: (documents: HTMLElement[]) => void;
   execute: () => void;
 };
@@ -31,10 +32,15 @@ function configureTranslation() {
   // command playground deliberately do not use this third-party browser code.
   translate.setDocuments([content]);
   translate.language.setLocal('english');
-  translate.language.setUrlParamControl('lang');
+  // Let translate.js choose an appropriate initial language from the visitor's
+  // browser settings. The visitor can still select any supported language.
+  translate.setAutoDiscriminateLocalLanguage();
+  translate.language.setUrlParamControl();
   translate.service.use('client.edge');
   translate.selectLanguageTag.show = true;
-  translate.selectLanguageTag.languages = 'english,spanish,french,german,portuguese,arabic,chinese_simplified';
+  // An empty value is translate.js's full built-in language list. Do not
+  // restrict this list: GitPulse is intended for a global audience.
+  translate.selectLanguageTag.languages = '';
   translate.selectLanguageTag.documentId = LANGUAGE_MENU_ID;
   translate.listener.start();
   translate.execute();
