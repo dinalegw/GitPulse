@@ -12,15 +12,12 @@ test('loads the documented pinned translate.js CDN in the browser', () => {
   assert.match(integration, /https:\/\/cdn\.staticfile\.net\/translate\.js\/3\.18\.66\/translate\.js/);
   assert.match(integration, /strategy="afterInteractive"/);
   assert.match(integration, /setLocal\('english'\)/);
-  assert.match(integration, /setAutoDiscriminateLocalLanguage\(\)/);
   assert.match(integration, /service\.use\('client\.edge'\)/);
-  assert.match(integration, /selectLanguageTag\.languages = ''/);
 });
 
-test('limits translation to explicit public content', () => {
+test('loads translation only on public Home and Docs pages', () => {
   assert.match(integration, /pathname === '\/' \|\| pathname === '\/docs'/);
   assert.match(integration, /if \(!isPublicTranslationRoute\) return null/);
-  assert.match(integration, /setDocuments\(\[content\]\)/);
   assert.match(home, /data-translate-content="true"/);
   assert.match(docs, /data-translate-content="true"/);
   assert.match(layout, /<TranslateJs \/>/);

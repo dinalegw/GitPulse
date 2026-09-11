@@ -8,12 +8,10 @@ const TRANSLATE_SCRIPT = 'https://cdn.staticfile.net/translate.js/3.18.66/transl
 export const LANGUAGE_MENU_ID = 'gitpulse-translate-menu';
 
 type TranslateApi = {
-  language: { setLocal: (language: string) => void; setUrlParamControl: (name?: string) => void };
+  language: { setLocal: (language: string) => void };
   service: { use: (service: string) => void };
   listener: { start: () => void };
   selectLanguageTag: { show: boolean; languages: string; documentId: string };
-  setAutoDiscriminateLocalLanguage: () => void;
-  setDocuments: (documents: HTMLElement[]) => void;
   execute: () => void;
 };
 
@@ -25,22 +23,15 @@ declare global {
 
 function configureTranslation() {
   const translate = window.translate;
-  const content = document.querySelector<HTMLElement>('[data-translate-content="true"]');
-  if (!translate || !content) return;
+  if (!translate) return;
 
-  // Translate only pages that explicitly opt in. GitHub connection and the
-  // command playground deliberately do not use this third-party browser code.
-  translate.setDocuments([content]);
+  // Keep this to translate.js's documented browser flow. The component itself
+  // is mounted only on public Home and Docs pages, so connection and playground
+  // pages never load or execute the third-party script.
   translate.language.setLocal('english');
-  // Let translate.js choose an appropriate initial language from the visitor's
-  // browser settings. The visitor can still select any supported language.
-  translate.setAutoDiscriminateLocalLanguage();
-  translate.language.setUrlParamControl();
   translate.service.use('client.edge');
   translate.selectLanguageTag.show = true;
-  // An empty value is translate.js's full built-in language list. Do not
-  // restrict this list: GitPulse is intended for a global audience.
-  translate.selectLanguageTag.languages = '';
+  // Keep the library's complete language list; do not restrict it.
   translate.selectLanguageTag.documentId = LANGUAGE_MENU_ID;
   translate.listener.start();
   translate.execute();
