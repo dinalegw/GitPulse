@@ -12,7 +12,7 @@ test('loads the documented pinned translate.js CDN in the browser', () => {
   assert.match(integration, /https:\/\/cdn\.staticfile\.net\/translate\.js\/3\.18\.66\/translate\.js/);
   assert.match(integration, /strategy="afterInteractive"/);
   assert.match(integration, /setLocal\('english'\)/);
-  assert.match(integration, /service\.use\('giteeAI'\)/);
+  assert.match(integration, /service\.use\('translate\.service'\)/);
   assert.doesNotMatch(integration, /service\.use\('client\.edge'\)/);
 });
 

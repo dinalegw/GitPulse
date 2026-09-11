@@ -8,7 +8,7 @@ GitPulse leaves translate.js's language list untouched, so the selector uses the
 
 ## Translation service
 
-GitPulse uses translate.js's `giteeAI` service setting. The previously used `client.edge` mode depends on a Microsoft Edge authorization endpoint that is no longer available, which allowed the selector to render but prevented the page text from changing. `giteeAI` is a public translate.js-supported service and does not require a GitPulse API key.
+GitPulse uses translate.js's standard public `translate.service` setting. It currently publishes 133 languages, including Hausa, Igbo, and Yoruba. The previously used `client.edge` mode depends on a Microsoft Edge authorization endpoint that is no longer available, which allowed the selector to render but prevented the page text from changing. The standard service does not require a GitPulse API key.
 
 ## Why it is scoped
 
@@ -35,7 +35,7 @@ The smallest HTML-only version is:
 <script src="https://cdn.staticfile.net/translate.js/3.18.66/translate.js"></script>
 <script>
   translate.language.setLocal('english');
-  translate.service.use('giteeAI');
+  translate.service.use('translate.service');
   translate.selectLanguageTag.documentId = 'translate';
   translate.listener.start();
   translate.execute();
