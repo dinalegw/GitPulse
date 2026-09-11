@@ -8,6 +8,7 @@ import { StepDiagram } from '@/components/StepDiagram';
 import { TrustBadges, PlatformIcons } from '@/components/TrustBadges';
 import { Github, ArrowRight, Check, Terminal as TerminalIcon } from 'lucide-react';
 import Link from 'next/link';
+import { LANGUAGE_MENU_ID } from '@/components/TranslateJs';
 
 const Terminal = dynamicImport(() => import('@/components/Terminal').then(mod => mod.Terminal), {
   ssr: false,
@@ -43,7 +44,7 @@ function getVersion() {
 export default function HomePage() {
   const version = getVersion();
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col" data-translate-content="true">
       <header className="relative overflow-hidden pt-20 pb-32 lg:pt-32 lg:pb-40">
         <div className="section-container">
           <div className="max-w-4xl mx-auto text-center">
@@ -68,6 +69,10 @@ export default function HomePage() {
             </div>
             <h2 className="heading-2 mb-4 text-balance">Automate Git workflows without giving up control</h2>
             <p className="text-lead mb-8 max-w-2xl mx-auto">Schedule repository operations, validate state before changes, preview with dry runs, and push only when you choose. GitPulse runs locally on your machine.</p>
+            <div className="translate-language-control mb-8" aria-label="Choose website language">
+              <span>Language</span>
+              <div id={LANGUAGE_MENU_ID} />
+            </div>
 
             <div className="flex flex-wrap items-center justify-center gap-3 mb-10 text-sm text-text-muted">
               <span className="flex items-center gap-1.5 badge badge-success"><Check className="h-3 w-3" /> Safety checks</span>

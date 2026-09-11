@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { TranslateJs } from '@/components/TranslateJs';
 import './globals.css';
 
 const SITE_URL = 'https://start-gitpulse.vercel.app';
@@ -74,6 +75,7 @@ export default function RootLayout({
     <html lang="en" className="antialiased">
       <body className="bg-bg-primary text-text-primary font-sans min-h-screen">
         {children}
+        <TranslateJs />
       </body>
     </html>
   );
