@@ -37,3 +37,21 @@ func TestAcceptsGitIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestPartialGitIdentityPreservesTheConfiguredHalf(t *testing.T) {
+	tests := []struct {
+		name, email         string
+		wantName, wantEmail string
+	}{
+		{"", "owner@example.com", fallbackGitName, "owner@example.com"},
+		{"Owner", "", "Owner", fallbackGitEmail},
+		{"Owner", "owner@example.com", "Owner", "owner@example.com"},
+		{"", "", fallbackGitName, fallbackGitEmail},
+	}
+	for _, test := range tests {
+		name, email := partialGitIdentity(test.name, test.email)
+		if name != test.wantName || email != test.wantEmail {
+			t.Errorf("partialGitIdentity(%q, %q) = (%q, %q), want (%q, %q)", test.name, test.email, name, email, test.wantName, test.wantEmail)
+		}
+	}
+}
