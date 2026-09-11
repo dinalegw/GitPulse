@@ -290,18 +290,57 @@ func recoverGitIdentityFromHistory(reader *bufio.Reader, client *git.Client, ctx
 		return fmt.Errorf("GitPulse stopped; no Git identity or credentials were changed")
 	}
 
-	fmt.Println("GitPulse could not find a complete Git commit identity for this repository.")
-	fmt.Println("It does not need, request, or store your GitHub password, token, or SSH key.")
-	fmt.Println("GitHub sign-in and Git commit authorship are configured separately by Git.")
-	fmt.Println()
-	fmt.Println("Set your author identity once with Git, then run GitPulse again:")
+	return confirmPartialGitIdentity(reader, client, ctx, configuredName, configuredEmail)
+}
+
+const (
+	fallbackGitName  = "GitPulse User"
+	fallbackGitEmail = "gitpulse@localhost"
+)
+
+// confirmPartialGitIdentity keeps an existing name or email and fills only
+// the missing half of Git's required author identity. The fallback is saved
+// locally after confirmation so GitPulse can work in a new repository without
+// changing global Git configuration or asking for credentials.
+func confirmPartialGitIdentity(reader *bufio.Reader, client *git.Client, ctx context.Context, configuredName, configuredEmail string) error {
+	name, email := partialGitIdentity(configuredName, configuredEmail)
+
+	fmt.Println("GitPulse found part of your existing Git author identity:")
+	fmt.Printf("  Name:  %s\n", name)
+	fmt.Printf("  Email: %s\n", email)
+	if strings.TrimSpace(configuredEmail) == "" {
+		fmt.Println("The fallback email allows Git to create and push commits, but GitHub cannot link it to an account or count it as activity.")
+	}
+	answer, err := prompt(reader, "Use this identity and save only the missing value in this repository? [Y/n]")
+	if err != nil {
+		return err
+	}
+	if !acceptsGitIdentity(answer) {
+		return fmt.Errorf("GitPulse stopped; no Git identity or credentials were changed")
+	}
 	if strings.TrimSpace(configuredName) == "" {
-		fmt.Println("  git config --global user.name \"Your Name\"")
+		if err := client.SetLocalConfig(ctx, "user.name", name); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(configuredEmail) == "" {
-		fmt.Println("  git config --global user.email \"your-github-email-or-noreply-email\"")
+		if err := client.SetLocalConfig(ctx, "user.email", email); err != nil {
+			return err
+		}
 	}
-	return fmt.Errorf("Git author identity is incomplete")
+	return nil
+}
+
+func partialGitIdentity(name, email string) (string, string) {
+	name = strings.TrimSpace(name)
+	email = strings.TrimSpace(email)
+	if name == "" {
+		name = fallbackGitName
+	}
+	if email == "" {
+		email = fallbackGitEmail
+	}
+	return name, email
 }
 
 func acceptsGitIdentity(answer string) bool {
