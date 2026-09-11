@@ -124,6 +124,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and the [developer documentation](https:/
 
 The `gitpulse-website/` directory contains the public website, browser playground, and optional GitHub identity connection. Authenticated hosted repository automation is a future capability and is not shipped by this repository; see [docs/open-source-boundary.md](docs/open-source-boundary.md).
 
+The public Home and Documentation index include an optional translate.js language selector. It currently supports 133 languages, including Hausa, Igbo, and Yoruba. The GitHub connection flow and playground are deliberately excluded from browser-side translation.
+
 **Live site:** https://start-gitpulse.vercel.app/
 
 ## Documentation
