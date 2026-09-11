@@ -12,7 +12,8 @@ test('loads the documented pinned translate.js CDN in the browser', () => {
   assert.match(integration, /https:\/\/cdn\.staticfile\.net\/translate\.js\/3\.18\.66\/translate\.js/);
   assert.match(integration, /strategy="afterInteractive"/);
   assert.match(integration, /setLocal\('english'\)/);
-  assert.match(integration, /service\.use\('client\.edge'\)/);
+  assert.match(integration, /service\.use\('giteeAI'\)/);
+  assert.doesNotMatch(integration, /service\.use\('client\.edge'\)/);
 });
 
 test('loads translation only on public Home and Docs pages', () => {

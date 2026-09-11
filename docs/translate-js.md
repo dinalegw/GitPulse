@@ -6,6 +6,10 @@ GitPulse uses [translate.js](https://github.com/xnx3/translate) to provide an op
 
 GitPulse leaves translate.js's language list untouched, so the selector uses the complete set provided by the library instead of a hand-picked subset. Visitors can choose any listed language from the selector.
 
+## Translation service
+
+GitPulse uses translate.js's `giteeAI` service setting. The previously used `client.edge` mode depends on a Microsoft Edge authorization endpoint that is no longer available, which allowed the selector to render but prevented the page text from changing. `giteeAI` is a public translate.js-supported service and does not require a GitPulse API key.
+
 ## Why it is scoped
 
 translate.js is third-party JavaScript that reads page content in the visitor's browser in order to translate it. GitPulse loads it only on the public Home and Documentation index pages. The GitHub connection flow and command playground are deliberately excluded.
@@ -31,7 +35,7 @@ The smallest HTML-only version is:
 <script src="https://cdn.staticfile.net/translate.js/3.18.66/translate.js"></script>
 <script>
   translate.language.setLocal('english');
-  translate.service.use('client.edge');
+  translate.service.use('giteeAI');
   translate.selectLanguageTag.documentId = 'translate';
   translate.listener.start();
   translate.execute();
