@@ -29,7 +29,10 @@ function configureTranslation() {
   // is mounted only on public Home and Docs pages, so connection and playground
   // pages never load or execute the third-party script.
   translate.language.setLocal('english');
-  translate.service.use('client.edge');
+  // `client.edge` depends on a Microsoft Edge authorization endpoint that no
+  // longer responds. GiteeAI is a translate.js-supported public backend and
+  // keeps the browser-only, no-key integration working.
+  translate.service.use('giteeAI');
   translate.selectLanguageTag.show = true;
   // Keep the library's complete language list; do not restrict it.
   translate.selectLanguageTag.documentId = LANGUAGE_MENU_ID;
