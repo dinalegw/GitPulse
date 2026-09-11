@@ -12,6 +12,7 @@ GitPulse helps developers automate routine Git workflows with repository validat
 
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub-30363D?logo=githubsponsors)](https://github.com/sponsors/dinalegw)
 
 > **Responsible use:** GitPulse automates Git operations you configure. It is not a tool for deceiving GitHub or fabricating development activity. Use automation only for legitimate repository workflows, and ensure generated changes accurately represent meaningful work.
 
@@ -102,6 +103,10 @@ GitPulse can configure and execute repository workflows including:
 - health and status diagnostics.
 
 GitPulse is deliberately transparent: it does not promise or manufacture GitHub contribution credit. GitHub determines contribution attribution based on its own rules and the commit author email.
+
+## Sponsor GitPulse
+
+If GitPulse is useful to you, you can support its maintenance through [GitHub Sponsors](https://github.com/sponsors/dinalegw). Sponsorship is optional and does not unlock or restrict the local CLI.
 
 ## For contributors
 
