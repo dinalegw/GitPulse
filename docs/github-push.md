@@ -32,6 +32,8 @@ Do not put a GitHub token or password in the GitPulse configuration file.
 
 Before a real automated cycle creates commits for a configured push destination, GitPulse checks the remote, Git author identity, push URL, and whether Git accepts a dry-run push of `HEAD` to the configured remote branch. If preflight fails, GitPulse stops before creating the automated commits for that cycle.
 
+Push access is determined by that Git preflight, not by guessing from a remote URL. Therefore, the GitPulse repository owner can use the official repository directly, while someone who cloned it without write access is still stopped safely before any local commit is created.
+
 The actual push uses `HEAD:<remote-branch>`, so the local branch name does not have to match the remote branch name.
 
 ## Git author identity and GitHub contribution attribution

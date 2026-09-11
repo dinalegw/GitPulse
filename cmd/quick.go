@@ -64,16 +64,9 @@ func runInteractive(cmd *cobra.Command) error {
 			remoteURL, remoteErr := pullClient.RemoteURL(pullCtx, "origin")
 			if remoteErr == nil && isGitPulseUpstream(remoteURL) {
 				fmt.Println("This clone points to the official GitPulse source repository.")
-				fmt.Println("GitPulse will not create commits here because you do not have permission to push to that repository.")
+				fmt.Println("GitPulse will verify your actual push access before it creates any commit.")
+				fmt.Println("If you own this repository, you can continue. If you do not, the push preflight will stop safely before changing your working tree.")
 				fmt.Println()
-				fmt.Println("To use GitPulse for your own work:")
-				fmt.Println("  1. Install GitPulse, then cd into a Git repository you own.")
-				fmt.Println("  2. Run: gitpulse init")
-				fmt.Println("  3. Run: gitpulse run --dry-run")
-				fmt.Println()
-				fmt.Println("If you are changing GitPulse itself, first fork it on GitHub and point origin at your fork:")
-				fmt.Println("  git remote set-url origin https://github.com/<your-username>/GitPulse.git")
-				return fmt.Errorf("origin points to the upstream GitPulse repository; choose a repository you own")
 			}
 			fmt.Printf("Pulling latest changes from origin/%s...\n", branch)
 			if err := pullClient.Pull(pullCtx, "origin", branch); err != nil {

@@ -2,7 +2,10 @@ package cmd
 
 import "testing"
 
-func TestIsGitPulseUpstream(t *testing.T) {
+func TestIsGitPulseUpstreamIsOnlyARepositoryClassifier(t *testing.T) {
+	// This classifier is deliberately not an authorization decision. The
+	// interactive flow relies on Git's non-mutating push preflight because the
+	// repository owner may legitimately use this exact remote URL.
 	for _, remote := range []string{
 		"https://github.com/dinalegw/GitPulse.git",
 		"https://github.com/dinalegw/GitPulse/",
