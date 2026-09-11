@@ -47,6 +47,9 @@ export default function DocsIndexPage() {
                 <span>Language</span>
                 <div id={LANGUAGE_MENU_ID} />
               </div>
+              <p className="text-xs text-text-muted mt-3">
+                Translation powered by <a href="https://github.com/xnx3/translate" target="_blank" rel="noopener noreferrer" className="link">translate.js</a>, created by Guan Leiming (xnx3).
+              </p>
             </div>
           </div>
         </div>
