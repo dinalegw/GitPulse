@@ -8,6 +8,8 @@
 
 GitPulse helps developers automate routine Git workflows with repository validation, dry runs, scheduling, controlled commits, and explicit push behavior — while keeping execution local and user-controlled.
 
+**For developers who want repeatable Git workflows without handing a third-party service their repository credentials.**
+
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -30,6 +32,12 @@ Git automation should be predictable before it is powerful.
 - **Human-readable configuration** — YAML configuration you can inspect and manage.
 - **Scoped automation** — generated metadata is kept separate from source files.
 
+## Is GitPulse for you?
+
+Use GitPulse when you want to run a deliberate, reviewable Git workflow in a repository you own: for example, a recurring metadata update, a scheduled maintenance task, or a repeatable commit cycle that you have configured and tested with `--dry-run`.
+
+GitPulse is not a hosted GitHub bot, a replacement for normal code review, or a way to manufacture contribution activity. It runs locally and uses the Git authentication already configured on the user's computer.
+
 ## Try GitPulse in your browser
 
 **No installation required.** The project includes a browser playground that runs the real GitPulse binary inside an ephemeral sandbox.
@@ -42,7 +50,7 @@ The playground is for exploration and uses only a disposable demo repository. Gi
 
 ### Recommended: bootstrap installer
 
-The bootstrap installer checks the host, reuses a compatible Go installation, installs only missing supported prerequisites, builds GitPulse for the current machine, and verifies the installation with `gitpulse version` and `gitpulse doctor`.
+The bootstrap installer checks the host, reuses a compatible Go installation, installs only missing supported prerequisites, verifies a downloaded private Go toolchain against Go's official SHA-256 manifest before activation, builds GitPulse for the current machine, and verifies the installation with `gitpulse version` and `gitpulse doctor`.
 
 **Linux / macOS**
 
@@ -68,7 +76,7 @@ See [docs/installation.md](docs/installation.md) for troubleshooting and platfor
 
 ## Quick start
 
-From a Git repository:
+From the repository you want GitPulse to operate on (not necessarily the GitPulse source checkout):
 
 ```sh
 gitpulse init
@@ -93,7 +101,7 @@ GitPulse can configure and execute repository workflows including:
 - structured activity logs;
 - health and status diagnostics.
 
-GitPulse is deliberately transparent: it does not promise or manufacture GitHub contribution credit. GitHub determines contribution attribution based on its own rules.
+GitPulse is deliberately transparent: it does not promise or manufacture GitHub contribution credit. GitHub determines contribution attribution based on its own rules and the commit author email.
 
 ## For contributors
 

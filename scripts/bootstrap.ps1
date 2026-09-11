@@ -79,6 +79,22 @@ function Get-PrivateGoRoot {
     return (Join-Path $InstallRoot "toolchains\go$RequiredGo")
 }
 
+function Get-OfficialGoChecksum([string]$ArchiveName) {
+    try {
+        $manifest = Invoke-RestMethod -Uri 'https://go.dev/dl/?mode=json&include=all' -ErrorAction Stop
+        $file = $manifest |
+            ForEach-Object { $_.files } |
+            Where-Object { $_.filename -eq $ArchiveName } |
+            Select-Object -First 1
+        if (-not $file -or -not $file.sha256 -or $file.sha256 -notmatch '^[0-9a-f]{64}$') {
+            Fail "official Go checksum for $ArchiveName was not found"
+        }
+        return $file.sha256.ToLowerInvariant()
+    } catch {
+        Fail "could not retrieve the official Go checksum manifest: $($_.Exception.Message)"
+    }
+}
+
 function Use-PrivateGoIfAvailable {
     $goRoot = Get-PrivateGoRoot
     $goExe = Join-Path $goRoot 'bin\go.exe'
@@ -94,20 +110,44 @@ function Use-PrivateGoIfAvailable {
 function Install-PrivateGo {
     $archiveName = Get-GoArchiveName
     $goRoot = Get-PrivateGoRoot
-    $archive = Join-Path $env:TEMP $archiveName
+    $tempRoot = Join-Path (Split-Path $goRoot) ".gitpulse-go-$([guid]::NewGuid())"
+    $archive = Join-Path $tempRoot $archiveName
     $url = "https://go.dev/dl/$archiveName"
 
     New-Item -ItemType Directory -Force -Path (Split-Path $goRoot) | Out-Null
-    Write-Step "Downloading Go $RequiredGo from go.dev"
-    & curl.exe -fL --retry 3 --retry-delay 2 $url -o $archive
-    if ($LASTEXITCODE -ne 0) { Fail "unable to download $url" }
+    New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+    try {
+        Write-Step "Downloading Go $RequiredGo from go.dev"
+        & curl.exe -fL --retry 3 --retry-delay 2 $url -o $archive
+        if ($LASTEXITCODE -ne 0) { Fail "unable to download $url" }
 
-    if (Test-Path $goRoot) { Remove-Item -Recurse -Force $goRoot }
-    $tempExtract = Join-Path $env:TEMP "gitpulse-go-extract-$([guid]::NewGuid())"
-    New-Item -ItemType Directory -Force -Path $tempExtract | Out-Null
-    Expand-Archive -LiteralPath $archive -DestinationPath $tempExtract -Force
-    Move-Item -LiteralPath (Join-Path $tempExtract 'go') -Destination $goRoot
-    Remove-Item -Recurse -Force $tempExtract, $archive
+        $expected = Get-OfficialGoChecksum $archiveName
+        $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -ne $expected) { Fail "Go checksum mismatch for $archiveName; download was discarded" }
+
+        $tempExtract = Join-Path $tempRoot 'extract'
+        New-Item -ItemType Directory -Force -Path $tempExtract | Out-Null
+        Expand-Archive -LiteralPath $archive -DestinationPath $tempExtract -Force
+        $candidate = Join-Path $tempExtract 'go'
+        $candidateExe = Join-Path $candidate 'bin\go.exe'
+        if (-not (Test-Path $candidateExe)) { Fail 'downloaded Go archive did not contain bin\go.exe' }
+        if ((& $candidateExe version) -notmatch "go$([regex]::Escape($RequiredGo.ToString()))") {
+            Fail "downloaded Go version did not match $RequiredGo"
+        }
+
+        # Preserve the prior known-good private toolchain until the replacement
+        # has passed checksum and executable verification.
+        $backup = "$goRoot.previous"
+        if (Test-Path $backup) { Remove-Item -Recurse -Force $backup }
+        if (Test-Path $goRoot) { Move-Item -LiteralPath $goRoot -Destination $backup }
+        Move-Item -LiteralPath $candidate -Destination $goRoot
+        if (Test-Path $backup) { Remove-Item -Recurse -Force $backup }
+    } catch {
+        if (Test-Path $backup -and -not (Test-Path $goRoot)) { Move-Item -LiteralPath $backup -Destination $goRoot }
+        throw
+    } finally {
+        Remove-Item -Recurse -Force $tempRoot -ErrorAction SilentlyContinue
+    }
 
     $env:GOROOT = $goRoot
     $env:Path = "$goRoot\bin;$env:Path"

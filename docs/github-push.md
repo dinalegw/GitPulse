@@ -34,7 +34,7 @@ Before a real automated cycle creates commits for a configured push destination,
 
 The actual push uses `HEAD:<remote-branch>`, so the local branch name does not have to match the remote branch name.
 
-## GitHub contribution attribution
+## Git author identity and GitHub contribution attribution
 
 A successful Git push and a GitHub contribution are not the same thing. GitHub associates commits with accounts using the commit author email. Configure Git with an email associated with your GitHub account, or use your GitHub-provided noreply address:
 
@@ -43,7 +43,9 @@ git config --global user.name "Your Name"
 git config --global user.email "your-email-or-github-noreply-address"
 ```
 
-GitPulse checks that a name and email exist, but it cannot prove from native Git alone that the email is associated with a particular GitHub account.
+GitPulse reads the identity Git resolves for the selected repository: repository-local configuration first, then the normal Git global/system configuration. It displays the detected identity and asks for confirmation; it does not ask for a GitHub password, token, or SSH key.
+
+If one value is missing, GitPulse first offers the selected repository's latest commit author as a recovery candidate. When there is no usable commit history, it can save a confirmed repository-only fallback so Git itself can continue. A fallback email such as `gitpulse@localhost` can create and push commits, but GitHub cannot attribute it to an account. Set a real GitHub-linked email when contribution attribution matters.
 
 ## Server-side restrictions
 
