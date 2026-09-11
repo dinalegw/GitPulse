@@ -192,6 +192,14 @@
   .link {
     @apply text-accent-primary hover:text-accent-primary/80 underline-offset-2 hover:underline transition-colors;
   }
+
+  .translate-language-control {
+    @apply inline-flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-card px-3 py-2 text-sm text-text-muted;
+  }
+
+  .translate-language-control select {
+    @apply rounded border border-border-subtle bg-bg-primary px-2 py-1 text-sm text-text-primary outline-none focus:border-accent-primary;
+  }
 }
 
 @layer utilities {

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { ChevronRight, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { LANGUAGE_MENU_ID } from '@/components/TranslateJs';
 
 const CATEGORY_LABELS: Record<string, string> = {
   core: 'Core',
@@ -25,7 +26,7 @@ export default function DocsIndexPage() {
   }));
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col" data-translate-content="true">
       <header className="py-16 lg:py-24 border-b border-border-subtle">
         <div className="section-container">
           <div className="max-w-4xl mx-auto">
@@ -42,6 +43,10 @@ export default function DocsIndexPage() {
               <p className="text-lead max-w-2xl mx-auto">
                 Complete reference for every GitPulse command — flags, examples, and sample output.
               </p>
+              <div className="translate-language-control mt-6" aria-label="Choose documentation language">
+                <span>Language</span>
+                <div id={LANGUAGE_MENU_ID} />
+              </div>
             </div>
           </div>
         </div>
