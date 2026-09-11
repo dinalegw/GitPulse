@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Unix and Windows bootstrap installers now verify a downloaded private Go
+  toolchain against the official Go SHA-256 manifest before activation and keep
+  the previous private toolchain until the verified replacement is ready.
 - Hardened the scheduler lifecycle so one `DailyScheduler` cannot run two
   loops concurrently.
 - Made scheduler cancellation and timer errors explicit and safe.
@@ -34,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `go test -race ./...` to Unix CI validation.
 - Kept formatting validation on Unix where the repository's canonical source
   formatting is checked; Windows continues to validate vet, tests, and build.
+
+### Documentation
+
+- Clarified that GitPulse runs locally, uses existing Git authentication, and
+  cannot guarantee GitHub contribution attribution.
+- Updated installation, Git identity, roadmap, and website install guidance to
+  match the shipped product.
 
 ## [1.0.0] - 2026-08-07
 

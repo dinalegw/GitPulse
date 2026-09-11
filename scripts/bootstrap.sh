@@ -112,6 +112,35 @@ ensure_curl() {
   need_command curl || die "curl is required to bootstrap the toolchain."
 }
 
+sha256_file() {
+  if need_command sha256sum; then
+    sha256sum "$1" | awk '{print $1}'
+  elif need_command shasum; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    die "sha256sum or shasum is required to verify the Go toolchain."
+  fi
+}
+
+official_go_checksum() {
+  local archive_name="$1" manifest
+  manifest="$2"
+  curl -fsSL --retry 3 --retry-delay 2 'https://go.dev/dl/?mode=json&include=all' -o "$manifest"
+  # The official download manifest is JSON. Avoid a jq dependency while
+  # matching the exact file name and its published SHA-256 field.
+  awk -v filename="$archive_name" '
+    BEGIN { RS="{" }
+    index($0, "\"filename\":\"" filename "\"") {
+      if (match($0, /\"sha256\":\"[0-9a-f]{64}\"/)) {
+        value = substr($0, RSTART, RLENGTH)
+        gsub(/\"sha256\":\"|\"/, "", value)
+        print value
+        exit
+      }
+    }
+  ' "$manifest"
+}
+
 go_archive_name() {
   local os arch
   case "$(uname -s)" in
@@ -159,19 +188,40 @@ ensure_go() {
     return
   fi
 
-  local archive_name url archive_dir tmp archive
+  local archive_name url archive_dir tmp archive manifest expected actual candidate backup
   archive_name="$(go_archive_name)"
   url="https://go.dev/dl/go${REQUIRED_GO}.${archive_name#go}"
   archive_dir="$(private_go_root)"
-  tmp="$(mktemp -d)"
-  archive="${tmp}/go.tar.gz"
   mkdir -p "${INSTALL_ROOT}/toolchains"
+  tmp="$(mktemp -d "${INSTALL_ROOT}/toolchains/.gitpulse-go.XXXXXX")"
+  archive="${tmp}/go.tar.gz"
+  manifest="${tmp}/go-downloads.json"
+  candidate="${tmp}/go"
 
   say "Downloading Go ${REQUIRED_GO} from go.dev"
   curl -fL --retry 3 --retry-delay 2 "$url" -o "$archive"
-  rm -rf "$archive_dir"
-  mkdir -p "$archive_dir"
-  tar -xzf "$archive" -C "$archive_dir" --strip-components=1
+  expected="$(official_go_checksum "$archive_name" "$manifest")"
+  [ -n "$expected" ] || die "official Go checksum for ${archive_name} was not found"
+  actual="$(sha256_file "$archive")"
+  [ "$actual" = "$expected" ] || die "Go checksum mismatch for ${archive_name}; download was discarded"
+
+  mkdir -p "$candidate"
+  tar -xzf "$archive" -C "$candidate" --strip-components=1
+  [ -x "${candidate}/bin/go" ] || die "downloaded Go archive did not contain bin/go"
+  "${candidate}/bin/go" version | grep -q "go${REQUIRED_GO}" || die "downloaded Go version did not match ${REQUIRED_GO}"
+
+  # Do not remove a working toolchain until the replacement has been
+  # downloaded, verified, extracted, and executed successfully.
+  backup="${archive_dir}.previous"
+  rm -rf "$backup"
+  if [ -e "$archive_dir" ]; then
+    mv "$archive_dir" "$backup"
+  fi
+  if ! mv "$candidate" "$archive_dir"; then
+    [ -e "$backup" ] && mv "$backup" "$archive_dir"
+    die "could not activate the verified Go toolchain; previous toolchain was restored"
+  fi
+  rm -rf "$backup"
   rm -rf "$tmp"
 
   export GOROOT="$archive_dir"

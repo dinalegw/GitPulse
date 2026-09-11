@@ -52,6 +52,17 @@ export const PLAYGROUND_RUNTIME = ${JSON.stringify(runtime, null, 2)} as const;
   await writeFile(GENERATED_PATH, content, 'utf8');
 }
 
+async function writeColdFallback(ref, reason) {
+  await writeGenerated({
+    schemaVersion: SCHEMA_VERSION,
+    snapshotId: null,
+    sourceCommit: ref === 'main' ? null : ref,
+    binarySha256: null,
+    region: REGION,
+  });
+  console.warn(`[playground snapshot] ${reason}; using cold fallback for this build`);
+}
+
 async function run(sandbox, cmd, args, options = {}) {
   const result = await sandbox.runCommand({
     cmd,
@@ -208,14 +219,7 @@ async function main() {
   const ref = sourceRef();
 
   if (!process.env.VERCEL_OIDC_TOKEN) {
-    await writeGenerated({
-      schemaVersion: SCHEMA_VERSION,
-      snapshotId: null,
-      sourceCommit: ref === 'main' ? null : ref,
-      binarySha256: null,
-      region: REGION,
-    });
-    console.log('[playground snapshot] VERCEL_OIDC_TOKEN unavailable; using cold fallback for this build');
+    await writeColdFallback(ref, 'VERCEL_OIDC_TOKEN unavailable');
     return;
   }
 
@@ -246,6 +250,12 @@ async function main() {
       region: REGION,
     });
     console.log(`[playground snapshot] ready: ${snapshotId}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Snapshotting is a performance optimization. The public site and the
+    // disposable cold playground must remain deployable if that optional
+    // build-time service is unavailable.
+    await writeColdFallback(ref, `snapshot preparation failed: ${message}`);
   } finally {
     if (sandbox && !snapshotted) {
       try { await sandbox.delete(); } catch {}
