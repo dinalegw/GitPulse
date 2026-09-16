@@ -140,6 +140,54 @@ func TestCyclePreflightFailureCreatesZeroCommits(t *testing.T) {
 	}
 }
 
+// TestCycleDryRunPreflightFailureChangesNothing proves that --dry-run is an
+// honest preview: a broken configured push destination is reported before
+// GitPulse claims a real run would succeed, while the repository is left
+// exactly unchanged.
+func TestCycleDryRunPreflightFailureChangesNothing(t *testing.T) {
+	cfg, repo := newPreflightEnv(t, false)
+	c := newCycle(t, cfg, true)
+
+	beforeCount := atoi(runIn(t, repo, "rev-list", "--count", "HEAD"))
+	res, err := c.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected dry-run preflight failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "cannot push") {
+		t.Errorf("error %q should mention push failure", err)
+	}
+	if res.Created != 0 {
+		t.Errorf("Created = %d on dry-run preflight failure, want 0", res.Created)
+	}
+	if afterCount := atoi(runIn(t, repo, "rev-list", "--count", "HEAD")); afterCount != beforeCount {
+		t.Errorf("dry run advanced HEAD from %d to %d", beforeCount, afterCount)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".gitpulse", "activity.log")); !os.IsNotExist(err) {
+		t.Error("dry run must not create metadata when preflight fails")
+	}
+}
+
+// TestCycleDryRunRejectsDirtyRepository ensures a successful dry run is a
+// reliable preview of a real run rather than a weaker repository check.
+func TestCycleDryRunRejectsDirtyRepository(t *testing.T) {
+	cfg, repo := newPreflightEnv(t, true)
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newCycle(t, cfg, true)
+	res, err := c.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected dirty repository error, got nil")
+	}
+	if !strings.Contains(err.Error(), "working-tree") {
+		t.Errorf("error %q should mention working-tree changes", err)
+	}
+	if res.Created != 0 {
+		t.Errorf("Created = %d in a rejected dry run, want 0", res.Created)
+	}
+}
+
 // TestCycleMissingRemoteIsSkippedNotFatal confirms that a repo with a
 // configured PushRemote but no actual remote in git produces local commits
 // without a push, matching the legacy "skip push" behaviour.

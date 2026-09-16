@@ -121,8 +121,13 @@ working-tree changes. The critical safety checks are repeated immediately
 before each commit mutation. Untracked files are allowed because GitPulse
 stages only its own metadata directory.
 
-A dry run inspects the repository but does not write metadata, stage files,
-create commits, or push.
+A dry run performs the same read-only safety checks as a real run — including
+the configured remote, Git author identity, and Git's non-mutating push
+preflight — but does not write metadata, stage files, create commits, or push.
+It will also stop for the same dirty-working-tree or branch mismatch that would
+block a real run. A successful dry run is therefore a reliable preview, not a
+guarantee: the remote can still change between the preview and a later real
+push.
 
 Push behavior is intentionally conservative:
 
