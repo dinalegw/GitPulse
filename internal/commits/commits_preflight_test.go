@@ -98,6 +98,12 @@ func TestCyclePreflightSuccessPushes(t *testing.T) {
 	if remoteHead != localHead {
 		t.Errorf("remote HEAD %s != local HEAD %s after push", remoteHead, localHead)
 	}
+	if res.PushedCommit != localHead {
+		t.Errorf("PushedCommit = %q, want verified HEAD %q", res.PushedCommit, localHead)
+	}
+	if !res.PushVerified {
+		t.Errorf("PushVerified = false, want true; warning: %s", res.PushVerificationWarning)
+	}
 }
 
 // TestCyclePreflightFailureCreatesZeroCommits confirms that when preflight

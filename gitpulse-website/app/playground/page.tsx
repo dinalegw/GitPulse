@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/Select';
-import { DOCS_ONLY, PLAYGROUND_COMMANDS } from '@/lib/commands';
+import { ALL_COMMANDS, DOCS_ONLY, PLAYGROUND_COMMANDS } from '@/lib/commands';
 import {
   PLAYGROUND_STATES,
   isActive,
@@ -68,6 +68,7 @@ interface PlaygroundCommandOption {
   label: string;
   description: string;
   defaultArgs: string[];
+  allowedArguments: string[];
 }
 
 interface PlaygroundResponse {
@@ -110,6 +111,7 @@ const COMMAND_OPTIONS: PlaygroundCommandOption[] = PLAYGROUND_COMMANDS.map((cmd)
   label: `gitpulse ${cmd.name}`,
   description: cmd.description,
   defaultArgs: cmd.playground.defaultArgs || [],
+  allowedArguments: cmd.flags.map((flag) => flag.name),
 }));
 
 function newIdempotencyKey(): string {
@@ -493,6 +495,9 @@ function PlaygroundContent() {
   };
 
   const runInFlight = isActive(state);
+  const selectedCommandMeta = COMMAND_OPTIONS.find(
+    (command) => command.value === selectedCommand
+  );
   const canRunAgain =
     Boolean(sessionId) && (isTerminal(state) || state === 'DISPOSED');
 
@@ -651,7 +656,7 @@ function PlaygroundContent() {
 
                   <div className="flex-1 min-w-0">
                     <label className="block text-sm text-text-muted mb-1">
-                      Arguments (allow-listed only)
+                      Arguments for the selected command
                     </label>
                     <input
                       type="text"
@@ -661,6 +666,21 @@ function PlaygroundContent() {
                       placeholder="e.g. --dry-run --count 2"
                       disabled={runInFlight}
                     />
+                    <p className="mt-2 text-xs text-text-muted">
+                      {selectedCommandMeta?.allowedArguments.length ? (
+                        <>
+                          Allowed here:{' '}
+                          {selectedCommandMeta.allowedArguments.map((argument, index) => (
+                            <span key={argument}>
+                              <code className="font-mono text-text-primary">{argument}</code>
+                              {index < selectedCommandMeta.allowedArguments.length - 1 ? ', ' : ''}
+                            </span>
+                          ))}
+                        </>
+                      ) : (
+                        <>This command does not take arguments.</>
+                      )}
+                    </p>
                   </div>
 
                   <Button
@@ -677,6 +697,51 @@ function PlaygroundContent() {
                       Clear Output
                     </Button>
                   )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="text-lg">GitPulse command reference</CardTitle>
+                <CardDescription>
+                  Every GitPulse command and an example of its output. Commands
+                  marked “Local terminal” need your own terminal because they
+                  are interactive or keep running until you stop them.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {ALL_COMMANDS.map((command) => {
+                    const playable = command.playground.allowed;
+                    const shownCommand = command.name === 'quick-wizard'
+                      ? 'gitpulse'
+                      : command.name === 'run-schedule'
+                        ? 'gitpulse run --schedule'
+                        : `gitpulse ${command.name}`;
+
+                    return (
+                      <details key={command.name} className="rounded-lg border border-border-subtle p-3">
+                        <summary className="cursor-pointer list-none">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <code className="font-mono text-text-primary">{shownCommand}</code>
+                              <p className="mt-1 text-sm text-text-muted">{command.description}</p>
+                            </div>
+                            <span className={cn(
+                              'shrink-0 rounded px-2 py-1 text-xs',
+                              playable ? 'bg-accent-primary/15 text-accent-primary' : 'bg-border-subtle text-text-muted'
+                            )}>
+                              {playable ? 'Playground' : 'Local terminal'}
+                            </span>
+                          </div>
+                        </summary>
+                        <pre className="mt-3 max-h-72 overflow-auto rounded bg-black/25 p-3 text-xs text-text-muted">
+                          <code>{command.sampleOutput}</code>
+                        </pre>
+                      </details>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

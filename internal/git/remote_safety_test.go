@@ -112,6 +112,21 @@ func TestPushHeadUsesHEADRefspec(t *testing.T) {
 	}
 }
 
+func TestHeadAndRemoteBranchCommit(t *testing.T) {
+	run := newFakeGitRunner()
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	run.results["git rev-parse HEAD"] = commit
+	run.results["git ls-remote origin refs/heads/main"] = commit + "\trefs/heads/main\n"
+	c := New("/repo", run)
+
+	if got, err := c.HeadCommit(context.Background()); err != nil || got != commit {
+		t.Fatalf("HeadCommit() = %q, %v; want %q, nil", got, err, commit)
+	}
+	if got, err := c.RemoteBranchCommit(context.Background(), "origin", "main"); err != nil || got != commit {
+		t.Fatalf("RemoteBranchCommit() = %q, %v; want %q, nil", got, err, commit)
+	}
+}
+
 func TestPushDryRunFailureIsActionable(t *testing.T) {
 	run := newFakeGitRunner()
 	run.errors["git push --dry-run origin HEAD:main"] = fmt.Errorf("permission denied")

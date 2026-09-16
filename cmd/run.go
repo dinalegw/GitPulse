@@ -107,6 +107,11 @@ func runOnce(ctx context.Context, cmd *cobra.Command, a *app, dryRun bool, count
 	fmt.Printf("Skipped  %d (nothing to commit)\n", res.Skipped)
 	if res.Pushed {
 		fmt.Printf("Pushed   yes (%s/%s)\n", a.cfg.PushRemote, a.cfg.RemoteBranch)
+		if res.PushVerified && res.PushedCommit != "" {
+			fmt.Printf("Verified remote commit  %s\n", res.PushedCommit)
+		} else if res.PushVerificationWarning != "" {
+			fmt.Printf("Post-push audit warning  %s\n", res.PushVerificationWarning)
+		}
 	} else if dryRun {
 		fmt.Printf("Pushed   skipped (dry-run)\n")
 	}
