@@ -30,7 +30,9 @@ Do not put a GitHub token or password in the GitPulse configuration file.
 
 ## Push preflight
 
-Before a real automated cycle creates commits for a configured push destination, GitPulse checks the remote, Git author identity, push URL, and whether Git accepts a dry-run push of `HEAD` to the configured remote branch. If preflight fails, GitPulse stops before creating the automated commits for that cycle.
+Before a real automated cycle creates commits for a configured push destination, GitPulse checks the remote, Git author identity, push URL, and whether Git accepts a dry-run push of `HEAD` to the configured remote branch. `gitpulse run --dry-run` performs these same non-mutating checks, so it can reveal a blocked remote before a real run. If preflight fails, GitPulse stops before creating the automated commits for that cycle.
+
+After a real push succeeds, GitPulse reads the configured remote branch and reports the exact commit it verified there. If the remote changes again before that read, the push remains successful but GitPulse reports a post-push audit warning instead of claiming an unverified result.
 
 Push access is determined by that Git preflight, not by guessing from a remote URL. Therefore, the GitPulse repository owner can use the official repository directly, while someone who cloned it without write access is still stopped safely before any local commit is created.
 
