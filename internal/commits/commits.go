@@ -123,9 +123,20 @@ type Result struct {
 	Created  int
 	Skipped  int
 	Pushed   bool
-	DryRun   bool
-	Duration time.Duration
-	FirstSeq int
+	// PushedCommit is the exact HEAD object ID GitPulse confirmed on the
+	// configured remote immediately after a successful push. It is empty for
+	// dry runs and local-only cycles.
+	PushedCommit string
+	// PushVerified is true only when the remote branch still pointed at
+	// PushedCommit when GitPulse performed its post-push audit.
+	PushVerified bool
+	// PushVerificationWarning records a non-fatal audit problem. A successful
+	// git push stays successful even if the remote moves again before it can be
+	// read back, or a transient network failure prevents that read.
+	PushVerificationWarning string
+	DryRun                  bool
+	Duration                time.Duration
+	FirstSeq                int
 }
 
 func (c *Cycle) Run(ctx context.Context) (Result, error) {
@@ -201,12 +212,15 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 	}
 
 	if res.Created > 0 && !c.dryRun {
-		pushed, err := c.push(ctx)
+		pushed, pushedCommit, pushVerified, verificationWarning, err := c.push(ctx)
 		if err != nil {
 			res.Duration = time.Since(start)
 			return res, err
 		}
 		res.Pushed = pushed
+		res.PushedCommit = pushedCommit
+		res.PushVerified = pushVerified
+		res.PushVerificationWarning = verificationWarning
 	}
 
 	res.Duration = time.Since(start)
@@ -296,19 +310,19 @@ func (c *Cycle) preflightPush(ctx context.Context) error {
 	return nil
 }
 
-func (c *Cycle) push(ctx context.Context) (bool, error) {
+func (c *Cycle) push(ctx context.Context) (bool, string, bool, string, error) {
 	if c.cfg.PushRemote == "" || c.cfg.RemoteBranch == "" {
 		c.log.Warn("skipping push: push_remote and remote_branch are not configured")
-		return false, nil
+		return false, "", false, "", nil
 	}
 
 	hasRemote, err := c.client.HasRemote(ctx, c.cfg.PushRemote)
 	if err != nil {
-		return false, fmt.Errorf("cannot check configured remotes: %w", err)
+		return false, "", false, "", fmt.Errorf("cannot check configured remotes: %w", err)
 	}
 	if !hasRemote {
 		c.log.WithField(logger.FieldRemote, c.cfg.PushRemote).Warn("skipping push: remote is not configured in the repository")
-		return false, nil
+		return false, "", false, "", nil
 	}
 
 	if c.log != nil {
@@ -318,10 +332,34 @@ func (c *Cycle) push(ctx context.Context) (bool, error) {
 		}).Info("pushing commits")
 	}
 	if err := c.client.PushHead(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch); err != nil {
-		return false, fmt.Errorf("GitPulse created the commits but the push to %s/%s failed: %w", c.cfg.PushRemote, c.cfg.RemoteBranch, err)
+		return false, "", false, "", fmt.Errorf("GitPulse created the commits but the push to %s/%s failed: %w", c.cfg.PushRemote, c.cfg.RemoteBranch, err)
+	}
+
+	// A successful git push is the authority for accepting the update. Read
+	// the exact remote ref afterwards as an explicit audit step, so the user
+	// and logs can prove which newly-created commit the remote now contains.
+	localCommit, err := c.client.HeadCommit(ctx)
+	if err != nil {
+		warning := fmt.Sprintf("push succeeded, but GitPulse could not read local HEAD for post-push verification: %v", err)
+		c.log.Warn("%s", warning)
+		return true, "", false, warning, nil
+	}
+	remoteCommit, err := c.client.RemoteBranchCommit(ctx, c.cfg.PushRemote, c.cfg.RemoteBranch)
+	if err != nil {
+		warning := fmt.Sprintf("push succeeded, but GitPulse could not verify %s/%s: %v", c.cfg.PushRemote, c.cfg.RemoteBranch, err)
+		c.log.Warn("%s", warning)
+		return true, localCommit, false, warning, nil
+	}
+	if localCommit != remoteCommit {
+		warning := fmt.Sprintf("push succeeded, but %s/%s moved from %s to %s before post-push verification", c.cfg.PushRemote, c.cfg.RemoteBranch, localCommit, remoteCommit)
+		c.log.Warn("%s", warning)
+		return true, localCommit, false, warning, nil
 	}
 	if c.log != nil {
-		c.log.WithField(logger.FieldPushed, true).Info("push completed")
+		c.log.WithFields(map[string]any{
+			logger.FieldPushed: true,
+			"commit":           localCommit,
+		}).Info("push completed and remote commit verified")
 	}
-	return true, nil
+	return true, localCommit, true, "", nil
 }

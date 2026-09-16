@@ -204,6 +204,36 @@ func (c *Client) LogCount(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// HeadCommit returns the full object ID of the commit currently checked out
+// at HEAD. GitPulse uses it after a push to record exactly which commit the
+// remote accepted.
+func (c *Client) HeadCommit(ctx context.Context) (string, error) {
+	out, err := c.run.Run(ctx, c.dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("cannot determine HEAD commit: %w", err)
+	}
+	if strings.TrimSpace(out) == "" {
+		return "", fmt.Errorf("cannot determine HEAD commit: git returned an empty object ID")
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// RemoteBranchCommit returns the object ID currently advertised by a remote
+// branch. It deliberately uses ls-remote instead of changing the local
+// working tree or fetching unrelated history.
+func (c *Client) RemoteBranchCommit(ctx context.Context, remote, branch string) (string, error) {
+	ref := "refs/heads/" + branch
+	out, err := c.run.Run(ctx, c.dir, "ls-remote", remote, ref)
+	if err != nil {
+		return "", fmt.Errorf("cannot read remote branch %s/%s: %w", remote, branch, err)
+	}
+	fields := strings.Fields(out)
+	if len(fields) == 0 || strings.TrimSpace(fields[0]) == "" {
+		return "", fmt.Errorf("remote branch %s/%s was not found after push", remote, branch)
+	}
+	return fields[0], nil
+}
+
 // LastCommitTime returns the commit time of the most recent commit on HEAD,
 // in the repository's configured timezone (offset local to the commit).
 func (c *Client) LastCommitTime(ctx context.Context) (time.Time, error) {
