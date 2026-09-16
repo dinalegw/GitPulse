@@ -159,12 +159,16 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 
 	res := Result{Expected: n, DryRun: c.dryRun}
 
-	// Before creating local commits that might be pushed later, verify the
-	// configured push target will actually accept them. A missing remote is
-	// not a fatal error — local-only commits remain supported — but a real
-	// push failure (auth, permission, branch protection, network) must abort
-	// the cycle so we never silently leave behind unpushable commits.
-	if !c.dryRun && c.cfg.PushRemote != "" && c.cfg.RemoteBranch != "" {
+	// Validate the configured push target before simulating or creating a
+	// commit. A dry run must be an honest preview of the real workflow: it
+	// performs the same non-mutating Git checks, including Git's own push
+	// preflight, but never writes metadata, creates a commit, or pushes.
+	//
+	// A missing remote is not a fatal error — local-only commits remain
+	// supported — but a real push failure (auth, permission, branch
+	// protection, network) must abort the cycle so we never silently leave
+	// behind unpushable commits.
+	if c.cfg.PushRemote != "" && c.cfg.RemoteBranch != "" {
 		if err := c.preflightPush(ctx); err != nil {
 			if !errors.Is(err, ErrPushNotConfigured) {
 				res.Duration = time.Since(start)
@@ -234,16 +238,9 @@ func (c *Cycle) RunN(ctx context.Context, n int) (Result, error) {
 }
 
 func (c *Cycle) validateRepository(ctx context.Context) error {
-	if c.dryRun {
-		inside, err := c.client.Detect(ctx)
-		if err != nil {
-			return fmt.Errorf("cannot inspect repository %q: %w", c.cfg.RepositoryPath, err)
-		}
-		if !inside {
-			return fmt.Errorf("%q is not a git working tree; run 'git init' there first", c.cfg.RepositoryPath)
-		}
-		return nil
-	}
+	// Repository validation is read-only. Applying it to dry runs means a
+	// successful preview is meaningful: the same branch and clean-working-tree
+	// rules that guard a real run have already been checked.
 	return validation.ValidateRepositoryForMutation(ctx, c.client, c.cfg)
 }
 
